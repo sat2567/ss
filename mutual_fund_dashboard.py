@@ -61,6 +61,19 @@ def fetch_table(url, rename_map=None):
         st.error(f"Error fetching data from {url}: {str(e)}")
         return None
 
+def scrape_category_ranks(category):
+    """Scrape ranking data for a specific category"""
+    url = f"https://www.moneycontrol.com/mutual-funds/performance-tracker/ranks/{category}.html"
+    df = fetch_table(url)
+    if df is not None and not df.empty:
+        # Clean up rank columns
+        rank_columns = [col for col in df.columns if 'rank' in col.lower() or 'rating' in col.lower()]
+        for col in rank_columns:
+            if df[col].dtype == 'object':
+                df[col] = df[col].str.extract(r'(\d+)').astype(float)
+        return df.head(10)  # Return top 10
+    return None
+
 def scrape_category(category, category_label):
     base = "https://www.moneycontrol.com/mutual-funds/performance-tracker"
     urls = {
@@ -229,7 +242,28 @@ def main():
             mime="text/csv"
         )
 
+        # Show top 10 ranked funds
+        st.subheader(f"🏆 Top 10 {selected_category} Funds by Rank")
+        rank_df = scrape_category_ranks(categories[selected_category])
+        
+        if rank_df is not None and not rank_df.empty:
+            # Display rank columns with proper formatting
+            rank_columns = [col for col in rank_df.columns if 'rank' in col.lower() or 'rating' in col.lower()]
+            display_cols = ["Scheme Name"] + rank_columns
+            
+            # Format rank columns to show as integers
+            format_dict = {col: "{:.0f}" for col in rank_columns}
+            
+            st.dataframe(
+                rank_df[display_cols].style.format(format_dict).highlight_min(rank_columns, color='#fffd75'),
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
+            st.warning("Could not fetch ranking data. Please try again later.")
+            
         # Show some statistics
+        st.subheader("📊 Fund Statistics")
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("Total Funds", len(df))
