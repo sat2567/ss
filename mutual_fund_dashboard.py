@@ -1,33 +1,84 @@
 import streamlit as st
+import pandas as pd
 import requests
 from bs4 import BeautifulSoup
-import pandas as pd
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import numpy as np
+from datetime import datetime, timedelta
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import yfinance as yf
 import time
+from streamlit.components.v1 import html
+from functools import lru_cache
 
-# Configure Streamlit page
-st.set_page_config(
-    page_title="Mutual Fund Dashboard",
-    page_icon="📈",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# Import market data module
+from market_data import display_market_data
 
-# Add custom CSS for better styling
-st.markdown("""
-<style>
-    .main {
-        padding: 2rem;
+def main():
+    # Configure Streamlit page
+    st.set_page_config(
+        page_title="Market Dashboard",
+        page_icon="📈",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+
+    # Add custom CSS for better styling
+    st.markdown("""
+    <style>
+        .main {
+            padding: 2rem;
+        }
+        .stDataFrame {
+            width: 100%;
+        }
+        .stDownloadButton button {
+            width: 100%;
+            margin-top: 1rem;
+        }
+        .market-card {
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 15px;
+            background-color: #f8f9fa;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .positive {
+            color: #28a745;
+        }
+        .negative {
+            color: #dc3545;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Display market data section
+    st.title("💰 Market Dashboard")
+    st.markdown("Track and analyze market data including mutual funds, gold, and US indices")
+    
+    # Display market data
+    display_market_data()
+    
+    # Add a separator
+    st.markdown("---")
+    
+    # Original mutual fund dashboard title
+    st.title("📊 Mutual Fund Performance")
+
+    # Category mapping
+    categories = {
+        "Flexi Cap": "flexi-cap-fund",
+        "Small Cap": "small-cap-fund",
+        "Mid Cap": "mid-cap-fund",
     }
-    .stDataFrame {
-        width: 100%;
-    }
-    .stDownloadButton button {
-        width: 100%;
-        margin-top: 1rem;
-    }
-</style>
-""", unsafe_allow_html=True)
+
+    # Fetch and display data for each category
+    for category_label, category in categories.items():
+        st.write(f"### {category_label} Funds")
+        df = scrape_category(category, category_label)
+        if df is not None:
+            st.write(df)
 
 # Cache the data to prevent re-fetching on every interaction
 @st.cache_data(ttl=3600)  # Cache for 1 hour
