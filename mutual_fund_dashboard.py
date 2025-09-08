@@ -72,11 +72,18 @@ def scrape_category_ranks(category):
             df = df[df['Plan'] == 'Regular']
             df = df[df['Scheme Name'].str.contains('Growth', case=False, na=False)]
         
-        # Clean up rank columns - include only specific time periods
-        rank_periods = ['1W', '1M', '3M', '6M', '1Y']
-        rank_columns = [col for col in df.columns 
-                       if any(period in col for period in rank_periods) 
-                       and 'rank' in col.lower()]
+        # Include all required time periods including YTD
+        rank_periods = ['1W', '1M', '3M', '6M', '1Y', 'YTD']
+        rank_columns = []
+        
+        # Ensure we get exactly the columns we want in the right order
+        for period in rank_periods:
+            # Look for columns containing the period and 'rank' (case insensitive)
+            matching_cols = [col for col in df.columns 
+                           if period.lower() in col.lower() 
+                           and 'rank' in col.lower()]
+            if matching_cols:
+                rank_columns.append(matching_cols[0])  # Take the first match
         
         # Clean and convert rank columns to numeric
         for col in rank_columns:
@@ -267,13 +274,17 @@ def main():
         
         if rank_df is not None and not rank_df.empty:
             # Clean up column names for better display
-            rank_df = rank_df.rename(columns={
+            column_mapping = {
                 '1W Rank': '1 Week',
                 '1M Rank': '1 Month',
                 '3M Rank': '3 Months',
                 '6M Rank': '6 Months',
-                '1Y Rank': '1 Year'
-            })
+                '1Y Rank': '1 Year',
+                'YTD Rank': 'YTD'
+            }
+            # Only include columns that exist in the dataframe
+            rank_df = rank_df.rename(columns={k: v for k, v in column_mapping.items() 
+                                            if k in rank_df.columns})
             
             # Get rank columns (all columns except Scheme Name)
             rank_columns = [col for col in rank_df.columns if col != 'Scheme Name']
