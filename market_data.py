@@ -67,42 +67,63 @@ def create_price_chart(ticker, period='1y'):
         st.error(f"Error creating chart: {str(e)}")
         return None
 
+def get_weekly_change(ticker):
+    """Get weekly percentage change for a ticker"""
+    try:
+        stock = yf.Ticker(ticker)
+        hist = stock.history(period='5d')
+        if len(hist) >= 2:
+            return ((hist['Close'].iloc[-1] / hist['Close'].iloc[0]) - 1) * 100
+        return 0
+    except:
+        return 0
+
 def display_market_data():
-    """Display gold and US market data with interactive charts"""
+    """Display simplified market data with price and weekly change"""
     try:
         st.header("📊 Market Overview")
         
         # Create columns for layout
         cols = st.columns(5)
         
-        # Gold price card
+        # Gold price
         with cols[0]:
             gold_price = get_gold_price()
-            st.metric("Gold (per oz)", f"${gold_price:,.2f}", "")
-            if st.button("View Gold Chart"):
-                gold_chart = create_price_chart("GC=F")
-                st.plotly_chart(gold_chart, use_container_width=True)
+            gold_change = get_weekly_change("GC=F")
+            st.metric(
+                "Gold (per oz)", 
+                f"${gold_price:,.2f}",
+                f"{gold_change:+.2f}%",
+                delta_color=("normal" if gold_change >= 0 else "inverse")
+            )
         
         # US Market indices
-        us_market = get_us_market_data()
-        if not us_market:
-            st.warning("Could not fetch US market data. Please check your internet connection.")
-            return
-            
-        for idx, (name, data) in enumerate(us_market.items(), 1):
-            if idx >= len(cols):  # Ensure we don't exceed column count
+        indices = {
+            '^GSPC': 'S&P 500',
+            '^DJI': 'Dow Jones',
+            '^IXIC': 'NASDAQ',
+            '^RUT': 'Russell 2000'
+        }
+        
+        for idx, (ticker, name) in enumerate(indices.items(), 1):
+            if idx >= len(cols):
                 break
                 
             with cols[idx]:
-                st.metric(
-                    name, 
-                    f"${data['price']:,.2f}", 
-                    f"{data['change']:+.2f}%",
-                    delta_color=("normal" if data['change'] >= 0 else "inverse")
-                )
-                if st.button(f"View {name} Chart"):
-                    chart = create_price_chart(data['ticker'])
-                    st.plotly_chart(chart, use_container_width=True)
+                try:
+                    stock = yf.Ticker(ticker)
+                    hist = stock.history(period='1d')
+                    if not hist.empty:
+                        price = round(hist['Close'].iloc[-1], 2)
+                        change = get_weekly_change(ticker)
+                        st.metric(
+                            name,
+                            f"${price:,.2f}",
+                            f"{change:+.2f}%",
+                            delta_color=("normal" if change >= 0 else "inverse")
+                        )
+                except Exception as e:
+                    st.error(f"Error fetching {name} data")
                     
     except Exception as e:
         st.error(f"Error displaying market data: {str(e)}")
