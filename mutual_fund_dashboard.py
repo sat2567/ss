@@ -393,46 +393,7 @@ def main():
         else:
             st.warning("No ranking data available for this category. The fund category might not exist or the data format has changed.")
             
-        # Show return statistics
-        st.subheader("📈 Fund Returns")
-        
-        # Create columns for each return period
-        return_periods = ['1W', '1M', '3M', '6M', '1Y', '3Y', '5Y']
-        cols = st.columns(len(return_periods) + 1)  # +1 for the Fund Name
-        
-        # Display fund name in first column
-        with cols[0]:
-            st.markdown("**Fund**")
-            for i, fund in df.head(10).iterrows():
-                st.markdown(fund['Scheme Name'])
-        
-        # Display returns for each period
-        for idx, period in enumerate(return_periods, 1):
-            # Try different column name formats
-            col_name = next((col for col in [f"{period}", f"{period} Return", f"{period} Returns"] 
-                            if col in df.columns), None)
-            
-            if col_name and col_name in df.columns:
-                with cols[idx]:
-                    # Column header with period
-                    st.markdown(f"**{period}**")
-                    
-                    # Get top 10 funds for this period
-                    top_funds = df.nlargest(10, col_name)
-                    
-                    # Display each fund's return
-                    for _, fund in top_funds.iterrows():
-                        return_val = fund.get(col_name, None)
-                        if pd.notna(return_val):
-                            # Color code based on return value
-                            color = "green" if return_val > 0 else "red"
-                            st.markdown(f"<span style='color: {color}'>{return_val:.2f}%</span>", 
-                                       unsafe_allow_html=True)
-                        else:
-                            st.markdown("-")
-            if "1W" in df.columns:
-                avg_return = df["1W"].mean()
-                st.metric("Avg 1W Return", f"{avg_return:.2f}%")
+        # Removed fund returns section as requested
     else:
         st.error("⚠️ Could not fetch data. Please try again later.")
 
