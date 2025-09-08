@@ -152,6 +152,7 @@ def main():
         "Small Cap": "small-cap-fund",
         "Mid Cap": "mid-cap-fund",
         "Large Cap": "large-cap-fund",
+        "Flexi Cap": "flexi-cap-fund",
         "ELSS": "elss",
         "Sectoral": "sectoral-fund",
         "Index": "index-fund"
