@@ -1,0 +1,21 @@
+[theme]
+base="light"
+primaryColor="#1f77b4"
+backgroundColor="#ffffff"
+secondaryBackgroundColor="#f0f2f6"
+
+[server]
+port = 8501
+enableCORS = false
+
+[browser]
+serverAddress = "localhost"
+
+[runner]
+magicEnabled = true
+
+[client]
+displayEnabled = true
+
+[scheduler]
+retryTimeout = 10
