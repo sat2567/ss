@@ -69,30 +69,40 @@ def create_price_chart(ticker, period='1y'):
 
 def display_market_data():
     """Display gold and US market data with interactive charts"""
-    st.header("📊 Market Overview")
-    
-    # Create columns for layout
-    cols = st.columns(5)
-    
-    # Gold price card
-    with cols[0]:
-        gold_price = get_gold_price()
-        st.metric("Gold (per oz)", f"${gold_price:,.2f}", "")
-        if st.button("View Gold Chart"):
-            gold_chart = create_price_chart("GC=F")
-            st.plotly_chart(gold_chart, use_container_width=True)
-    
-    # US Market indices
-    us_market = get_us_market_data()
-    for idx, (name, data) in enumerate(us_market.items(), 1):
-        with cols[idx]:
-            change_color = "green" if data['change'] >= 0 else "red"
-            st.metric(
-                name, 
-                f"${data['price']:,.2f}", 
-                f"{data['change']:+.2f}%",
-                delta_color=("normal" if data['change'] >= 0 else "inverse")
-            )
-            if st.button(f"View {name} Chart"):
-                chart = create_price_chart(data['ticker'])
-                st.plotly_chart(chart, use_container_width=True)
+    try:
+        st.header("📊 Market Overview")
+        
+        # Create columns for layout
+        cols = st.columns(5)
+        
+        # Gold price card
+        with cols[0]:
+            gold_price = get_gold_price()
+            st.metric("Gold (per oz)", f"${gold_price:,.2f}", "")
+            if st.button("View Gold Chart"):
+                gold_chart = create_price_chart("GC=F")
+                st.plotly_chart(gold_chart, use_container_width=True)
+        
+        # US Market indices
+        us_market = get_us_market_data()
+        if not us_market:
+            st.warning("Could not fetch US market data. Please check your internet connection.")
+            return
+            
+        for idx, (name, data) in enumerate(us_market.items(), 1):
+            if idx >= len(cols):  # Ensure we don't exceed column count
+                break
+                
+            with cols[idx]:
+                st.metric(
+                    name, 
+                    f"${data['price']:,.2f}", 
+                    f"{data['change']:+.2f}%",
+                    delta_color=("normal" if data['change'] >= 0 else "inverse")
+                )
+                if st.button(f"View {name} Chart"):
+                    chart = create_price_chart(data['ticker'])
+                    st.plotly_chart(chart, use_container_width=True)
+                    
+    except Exception as e:
+        st.error(f"Error displaying market data: {str(e)}")
