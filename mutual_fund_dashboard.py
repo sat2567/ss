@@ -63,42 +63,60 @@ def fetch_table(url, rename_map=None):
 
 def scrape_category_ranks(category):
     """Scrape ranking data for Regular Growth funds in a specific category"""
-    url = f"https://www.moneycontrol.com/mutual-funds/performance-tracker/ranks/{category}.html"
-    df = fetch_table(url)
-    
-    if df is not None and not df.empty:
+    try:
+        url = f"https://www.moneycontrol.com/mutual-funds/performance-tracker/ranks/{category}.html"
+        response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
+        response.raise_for_status()
+        
+        # Parse the HTML
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Find the main table
+        table = soup.find('table', {'class': 'mctable1'})
+        if not table:
+            st.warning(f"No ranking table found for {category}")
+            return None
+            
+        # Extract headers
+        headers = []
+        for th in table.find('thead').find_all('th'):
+            headers.append(th.get_text(strip=True))
+        
+        # Extract rows
+        rows = []
+        for tr in table.find('tbody').find_all('tr'):
+            row = [td.get_text(strip=True) for td in tr.find_all('td')]
+            if len(row) == len(headers):
+                rows.append(row)
+        
+        # Create DataFrame
+        if not rows:
+            return None
+            
+        df = pd.DataFrame(rows, columns=headers)
+        
         # Filter for Regular Growth funds only
         if 'Plan' in df.columns and 'Scheme Name' in df.columns:
             df = df[df['Plan'] == 'Regular']
             df = df[df['Scheme Name'].str.contains('Growth', case=False, na=False)]
-        
-        # Include all required time periods including YTD
-        rank_periods = ['1W', '1M', '3M', '6M', '1Y', 'YTD']
-        rank_columns = []
-        
-        # Ensure we get exactly the columns we want in the right order
-        for period in rank_periods:
-            # Look for columns containing the period and 'rank' (case insensitive)
-            matching_cols = [col for col in df.columns 
-                           if period.lower() in col.lower() 
-                           and 'rank' in col.lower()]
-            if matching_cols:
-                rank_columns.append(matching_cols[0])  # Take the first match
-        
+            
         # Clean and convert rank columns to numeric
+        rank_columns = [col for col in df.columns if 'rank' in col.lower() or 'Rank' in col]
         for col in rank_columns:
-            if df[col].dtype == 'object':
-                df[col] = pd.to_numeric(df[col].str.extract(r'(\d+)', expand=False), errors='coerce')
+            df[col] = pd.to_numeric(df[col].str.extract(r'(\d+)', expand=False), errors='coerce')
         
         # Sort by 1M rank by default and take top 10
-        if '1M Rank' in df.columns:
-            df = df.sort_values('1M Rank').head(10)
+        sort_column = '1M' if '1M' in ' '.join(rank_columns) else rank_columns[0] if rank_columns else None
+        if sort_column:
+            df = df.sort_values(by=sort_column, ascending=True).head(10)
         
-        # Select and order columns
+        # Select only the columns we want to display
         display_columns = ['Scheme Name'] + rank_columns
         return df[display_columns].dropna(how='all', axis=1)
-    
-    return None
+        
+    except Exception as e:
+        st.error(f"Error fetching ranking data: {str(e)}")
+        return None
 
 def scrape_category(category, category_label):
     base = "https://www.moneycontrol.com/mutual-funds/performance-tracker"
@@ -275,35 +293,44 @@ def main():
         if rank_df is not None and not rank_df.empty:
             # Clean up column names for better display
             column_mapping = {
-                '1W Rank': '1 Week',
-                '1M Rank': '1 Month',
-                '3M Rank': '3 Months',
-                '6M Rank': '6 Months',
-                '1Y Rank': '1 Year',
-                'YTD Rank': 'YTD'
+                '1W': '1 Week',
+                '1M': '1 Month',
+                '3M': '3 Months',
+                '6M': '6 Months',
+                '1Y': '1 Year',
+                'YTD': 'YTD'
             }
-            # Only include columns that exist in the dataframe
-            rank_df = rank_df.rename(columns={k: v for k, v in column_mapping.items() 
-                                            if k in rank_df.columns})
+            
+            # Rename columns for better display
+            rank_df = rank_df.rename(columns={col: column_mapping.get(col, col) for col in rank_df.columns})
             
             # Get rank columns (all columns except Scheme Name)
             rank_columns = [col for col in rank_df.columns if col != 'Scheme Name']
             
-            # Create styled dataframe with conditional formatting
-            st.dataframe(
-                rank_df.style
-                .format("{:.0f}", subset=rank_columns)  # Format as integers
-                .highlight_min(rank_columns, color='#e6f7e6')  # Light green for best ranks
-                .highlight_max(rank_columns, color='#ffcccc')  # Light red for worst ranks
-                .set_properties(**{'text-align': 'center'}),
-                use_container_width=True,
-                hide_index=True
-            )
-            
-            # Add explanation
-            st.caption("💡 Lower numbers indicate better performance. Best ranks in green, worst in red.")
+            if rank_columns:  # Only proceed if we have rank columns
+                # Create styled dataframe with conditional formatting
+                st.dataframe(
+                    rank_df.style
+                    .format("{:.0f}", subset=rank_columns)  # Format as integers
+                    .highlight_min(rank_columns, color='#e6f7e6')  # Light green for best ranks
+                    .highlight_max(rank_columns, color='#ffcccc')  # Light red for worst ranks
+                    .set_properties(**{'text-align': 'center'})
+                    .set_table_styles([
+                        {'selector': 'th', 'props': [('text-align', 'center')]},
+                        {'selector': 'td', 'props': [('text-align', 'center')]}
+                    ]),
+                    use_container_width=True,
+                    height=(min(len(rank_df), 10) + 1) * 35 + 3,
+                    hide_index=True
+                )
+                
+                # Add caption explaining the ranking
+                st.caption("🟢 Best rank | 🔴 Worst rank | Lower numbers indicate better performance")
+            else:
+                st.warning("No rank columns found in the data.")
+                st.write(rank_df)  # Show raw data for debugging
         else:
-            st.warning("Could not fetch ranking data. Please try again later.")
+            st.warning("No ranking data available for this category. The fund category might not exist or the data format has changed.")
             
         # Show some statistics
         st.subheader("📊 Fund Statistics")
