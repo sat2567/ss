@@ -62,16 +62,35 @@ def fetch_table(url, rename_map=None):
         return None
 
 def scrape_category_ranks(category):
-    """Scrape ranking data for a specific category"""
+    """Scrape ranking data for Regular Growth funds in a specific category"""
     url = f"https://www.moneycontrol.com/mutual-funds/performance-tracker/ranks/{category}.html"
     df = fetch_table(url)
+    
     if df is not None and not df.empty:
-        # Clean up rank columns
-        rank_columns = [col for col in df.columns if 'rank' in col.lower() or 'rating' in col.lower()]
+        # Filter for Regular Growth funds only
+        if 'Plan' in df.columns and 'Scheme Name' in df.columns:
+            df = df[df['Plan'] == 'Regular']
+            df = df[df['Scheme Name'].str.contains('Growth', case=False, na=False)]
+        
+        # Clean up rank columns - include only specific time periods
+        rank_periods = ['1W', '1M', '3M', '6M', '1Y']
+        rank_columns = [col for col in df.columns 
+                       if any(period in col for period in rank_periods) 
+                       and 'rank' in col.lower()]
+        
+        # Clean and convert rank columns to numeric
         for col in rank_columns:
             if df[col].dtype == 'object':
-                df[col] = df[col].str.extract(r'(\d+)').astype(float)
-        return df.head(10)  # Return top 10
+                df[col] = pd.to_numeric(df[col].str.extract(r'(\d+)', expand=False), errors='coerce')
+        
+        # Sort by 1M rank by default and take top 10
+        if '1M Rank' in df.columns:
+            df = df.sort_values('1M Rank').head(10)
+        
+        # Select and order columns
+        display_columns = ['Scheme Name'] + rank_columns
+        return df[display_columns].dropna(how='all', axis=1)
+    
     return None
 
 def scrape_category(category, category_label):
@@ -242,23 +261,36 @@ def main():
             mime="text/csv"
         )
 
-        # Show top 10 ranked funds
-        st.subheader(f"🏆 Top 10 {selected_category} Funds by Rank")
+        # Show top 10 ranked Regular Growth funds
+        st.subheader(f"🏆 Top 10 {selected_category} Regular Growth Funds by Rank")
         rank_df = scrape_category_ranks(categories[selected_category])
         
         if rank_df is not None and not rank_df.empty:
-            # Display rank columns with proper formatting
-            rank_columns = [col for col in rank_df.columns if 'rank' in col.lower() or 'rating' in col.lower()]
-            display_cols = ["Scheme Name"] + rank_columns
+            # Clean up column names for better display
+            rank_df = rank_df.rename(columns={
+                '1W Rank': '1 Week',
+                '1M Rank': '1 Month',
+                '3M Rank': '3 Months',
+                '6M Rank': '6 Months',
+                '1Y Rank': '1 Year'
+            })
             
-            # Format rank columns to show as integers
-            format_dict = {col: "{:.0f}" for col in rank_columns}
+            # Get rank columns (all columns except Scheme Name)
+            rank_columns = [col for col in rank_df.columns if col != 'Scheme Name']
             
+            # Create styled dataframe with conditional formatting
             st.dataframe(
-                rank_df[display_cols].style.format(format_dict).highlight_min(rank_columns, color='#fffd75'),
+                rank_df.style
+                .format("{:.0f}", subset=rank_columns)  # Format as integers
+                .highlight_min(rank_columns, color='#e6f7e6')  # Light green for best ranks
+                .highlight_max(rank_columns, color='#ffcccc')  # Light red for worst ranks
+                .set_properties(**{'text-align': 'center'}),
                 use_container_width=True,
                 hide_index=True
             )
+            
+            # Add explanation
+            st.caption("💡 Lower numbers indicate better performance. Best ranks in green, worst in red.")
         else:
             st.warning("Could not fetch ranking data. Please try again later.")
             
