@@ -117,17 +117,18 @@ def scrape_category(category, category_label):
     else:
         return None
 
+    # Define return periods to track
+    return_periods = ['1W', '1M', '3M', '6M', '1Y']
+    
     # Clean numeric columns
     numeric_columns = {
-        "1W": ("%", "", float),
         "AuM (Cr)": (",", "", float),
-        "3M": ("%", "", float),
-        "6M": ("%", "", float),
-        "1Y": ("%", "", float),
-        "3Y": ("%", "", float),
-        "5Y": ("%", "", float),
         "Crisil Rating Num": (r"(\d+)", "", float)
     }
+    
+    # Add return period columns
+    for period in return_periods:
+        numeric_columns[period] = ("%", "", float)
 
     for col, (old, new, dtype) in numeric_columns.items():
         if col in combined.columns:
@@ -141,6 +142,18 @@ def scrape_category(category, category_label):
 
     # Add category info
     combined["Category"] = category_label
+    
+    # Calculate ranks for each period
+    for period in return_periods:
+        if period in combined.columns:
+            rank_col = f"{period}_Rank"
+            combined[rank_col] = combined[period].rank(ascending=False, method='min').astype(int)
+    
+    # Calculate rank improvement
+    if all(f"{p}_Rank" in combined.columns for p in return_periods):
+        rank_cols = [f"{p}_Rank" for p in return_periods]
+        combined['Rank_Improvement'] = combined[rank_cols].diff(axis=1).drop(columns=rank_cols[0]).lt(0).all(axis=1)
+    
     return combined
 
 def main():
@@ -198,18 +211,64 @@ def main():
             )
             df = df[df["Crisil Rating"].isin(selected_ratings)]
 
-        # Display the dataframe
-        st.dataframe(
-            df,
-            use_container_width=True,
-            height=600,
-            hide_index=True,
-            column_config={
-                "Scheme Name": st.column_config.TextColumn("Scheme Name", width="large"),
-                "1W": st.column_config.NumberColumn("1W Return (%)", format="%.2f%%"),
-                "AuM (Cr)": st.column_config.NumberColumn("AUM (Cr)", format="₹%.2f")
-            }
-        )
+        # Create tabs for different views
+        tab1, tab2 = st.tabs(["Fund Performance", "Rank Analysis"])
+        
+        with tab1:
+            # Filter columns to show only up to 1W returns
+            columns_to_show = [col for col in df.columns if not col.endswith('_Rank') and col != 'Rank_Improvement']
+            df_display = df[columns_to_show].copy()
+            
+            # Display the main dataframe
+            st.dataframe(
+                df_display,
+                use_container_width=True,
+                height=600,
+                hide_index=True,
+                column_config={
+                    "Scheme Name": st.column_config.TextColumn("Scheme Name", width="large"),
+                    "1W": st.column_config.NumberColumn("1W Return (%)", format="%.2f%%"),
+                    "AuM (Cr)": st.column_config.NumberColumn("AUM (Cr)", format="₹%.2f")
+                }
+            )
+        
+        with tab2:
+            # Show rank analysis
+            rank_cols = [col for col in df.columns if col.endswith('_Rank')]
+            if rank_cols:
+                # Get rank columns and scheme name
+                rank_df = df[['Scheme Name'] + rank_cols].copy()
+                
+                # Highlight improving ranks
+                def highlight_improving(row):
+                    if 'Rank_Improvement' in df.columns and df.at[row.name, 'Rank_Improvement']:
+                        return ['background-color: #d4edda'] * len(row)
+                    return [''] * len(row)
+                
+                # Display rank table with highlighting
+                st.write("Fund Ranks Over Time (Lower is Better)")
+                st.dataframe(
+                    rank_df.style.apply(highlight_improving, axis=1),
+                    use_container_width=True,
+                    height=600,
+                    hide_index=True,
+                    column_config={
+                        "Scheme Name": st.column_config.TextColumn("Scheme Name", width="large"),
+                        **{col: st.column_config.NumberColumn(col.replace('_', ' '), format="%d") 
+                           for col in rank_cols}
+                    }
+                )
+                
+                # Show consistently improving funds
+                if 'Rank_Improvement' in df.columns:
+                    improving_funds = df[df['Rank_Improvement']]['Scheme Name'].tolist()
+                    if improving_funds:
+                        st.subheader("🚀 Consistently Improving Funds")
+                        st.write("These funds have shown consistent rank improvement across all time periods:")
+                        for fund in improving_funds:
+                            st.markdown(f"- {fund}")
+                    else:
+                        st.info("No funds with consistent rank improvement across all periods.")
 
         # Download button
         csv = df.to_csv(index=False).encode('utf-8')
