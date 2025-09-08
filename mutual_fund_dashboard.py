@@ -141,6 +141,15 @@ def scrape_category(category, category_label):
 
     # Add category info
     combined["Category"] = category_label
+    
+    # Drop columns that are completely null
+    combined = combined.dropna(axis=1, how='all')
+    
+    # Drop columns that have only one unique value (excluding NA)
+    for col in combined.columns:
+        if combined[col].nunique(dropna=True) <= 1:
+            combined = combined.drop(columns=[col])
+    
     return combined
 
 def main():
@@ -149,6 +158,7 @@ def main():
 
     # Category mapping
     categories = {
+        "Flexi Cap": "flexi-cap-fund",
         "Small Cap": "small-cap-fund",
         "Mid Cap": "mid-cap-fund",
         "Large Cap": "large-cap-fund",
