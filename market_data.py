@@ -1,19 +1,22 @@
 """Market data module for fetching and displaying financial market data."""
 import streamlit as st
-import yfinance as yf
-import plotly.graph_objects as go
+import requests
 from datetime import datetime, timedelta
 
-@st.cache_data(ttl=3600)  # Cache for 1 hour
-def get_gold_price():
-    """Fetch current gold price"""
+def get_market_data():
+    """Fetch market data using a simple API"""
     try:
-        gold = yf.Ticker("GC=F")
-        hist = gold.history(period="1d")
-        return round(hist['Close'].iloc[-1], 2) if not hist.empty else 0
+        # Using a free market data API
+        response = requests.get(
+            "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_24hr_change=true",
+            timeout=5
+        )
+        if response.status_code == 200:
+            return response.json()
+        return None
     except Exception as e:
-        st.error(f"Error fetching gold price: {str(e)}")
-        return 0
+        print(f"Error fetching market data: {str(e)}")
+        return None
 
 @st.cache_data(ttl=3600)
 def get_us_market_data():
@@ -70,60 +73,55 @@ def create_price_chart(ticker, period='1y'):
 def get_weekly_change(ticker):
     """Get weekly percentage change for a ticker"""
     try:
+        print(f"Fetching data for {ticker}")
         stock = yf.Ticker(ticker)
         hist = stock.history(period='5d')
+        print(f"History for {ticker}:")
+        print(hist)
         if len(hist) >= 2:
-            return ((hist['Close'].iloc[-1] / hist['Close'].iloc[0]) - 1) * 100
+            change = ((hist['Close'].iloc[-1] / hist['Close'].iloc[0]) - 1) * 100
+            print(f"Calculated change for {ticker}: {change}%")
+            return change
         return 0
-    except:
+    except Exception as e:
+        print(f"Error in get_weekly_change for {ticker}: {str(e)}")
         return 0
 
 def display_market_data():
-    """Display simplified market data with price and weekly change"""
+    """Display simplified market data"""
+    st.header("📊 Market Overview")
+    
+    # Create columns for layout
+    cols = st.columns(5)
+    
+    # Using a simple API for demonstration
     try:
-        st.header("📊 Market Overview")
+        data = get_market_data()
         
-        # Create columns for layout
-        cols = st.columns(5)
-        
-        # Gold price
-        with cols[0]:
-            gold_price = get_gold_price()
-            gold_change = get_weekly_change("GC=F")
-            st.metric(
-                "Gold (per oz)", 
-                f"${gold_price:,.2f}",
-                f"{gold_change:+.2f}%",
-                delta_color=("normal" if gold_change >= 0 else "inverse")
-            )
-        
-        # US Market indices
-        indices = {
-            '^GSPC': 'S&P 500',
-            '^DJI': 'Dow Jones',
-            '^IXIC': 'NASDAQ',
-            '^RUT': 'Russell 2000'
-        }
-        
-        for idx, (ticker, name) in enumerate(indices.items(), 1):
-            if idx >= len(cols):
-                break
-                
-            with cols[idx]:
-                try:
-                    stock = yf.Ticker(ticker)
-                    hist = stock.history(period='1d')
-                    if not hist.empty:
-                        price = round(hist['Close'].iloc[-1], 2)
-                        change = get_weekly_change(ticker)
-                        st.metric(
-                            name,
-                            f"${price:,.2f}",
-                            f"{change:+.2f}%",
-                            delta_color=("normal" if change >= 0 else "inverse")
-                        )
-                except Exception as e:
-                    st.error(f"Error fetching {name} data")
-                    
+        if data:
+            # Bitcoin
+            with cols[0]:
+                btc_price = data.get('bitcoin', {}).get('usd', 'N/A')
+                btc_change = data.get('bitcoin', {}).get('usd_24h_change', 0)
+                st.metric(
+                    "Bitcoin (BTC)",
+                    f"${btc_price:,.2f}" if isinstance(btc_price, (int, float)) else btc_price,
+                    f"{btc_change:+.2f}%" if isinstance(btc_change, (int, float)) else "N/A",
+                    delta_color=("normal" if isinstance(btc_change, (int, float)) and btc_change >= 0 else "inverse")
+                )
+            
+            # Ethereum
+            with cols[1]:
+                eth_price = data.get('ethereum', {}).get('usd', 'N/A')
+                eth_change = data.get('ethereum', {}).get('usd_24h_change', 0)
+                st.metric(
+                    "Ethereum (ETH)",
+                    f"${eth_price:,.2f}" if isinstance(eth_price, (int, float)) else eth_price,
+                    f"{eth_change:+.2f}%" if isinstance(eth_change, (int, float)) else "N/A",
+                    delta_color=("normal" if isinstance(eth_change, (int, float)) and eth_change >= 0 else "inverse")
+                )
+        else:
+            st.warning("Could not fetch live market data. Please check your internet connection.")
+            
     except Exception as e:
         st.error(f"Error displaying market data: {str(e)}")
