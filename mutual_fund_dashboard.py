@@ -105,10 +105,20 @@ def scrape_category_ranks(category):
         for col in rank_columns:
             df[col] = pd.to_numeric(df[col].str.extract(r'(\d+)', expand=False), errors='coerce')
         
-        # Sort by 1M rank by default and take top 10
-        sort_column = '1M' if '1M' in ' '.join(rank_columns) else rank_columns[0] if rank_columns else None
+        # Define return periods we want to display and sort by
+        return_periods = ['1W', '1M', '3M', '6M', '1Y', '3Y', '5Y']
+        
+        # Clean and convert return columns to numeric
+        for period in return_periods:
+            # Try different column name formats
+            for col in [f"{period}", f"{period} Return", f"{period} Returns"]:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col].str.rstrip('%'), errors='coerce')
+        
+        # Sort by 1M return by default (highest to lowest)
+        sort_column = next((col for col in ['1M', '1M Return'] if col in df.columns), None)
         if sort_column:
-            df = df.sort_values(by=sort_column, ascending=True).head(10)
+            df = df.sort_values(sort_column, ascending=False).head(10)
         
         # Select only the columns we want to display
         display_columns = ['Scheme Name'] + rank_columns
@@ -332,15 +342,43 @@ def main():
         else:
             st.warning("No ranking data available for this category. The fund category might not exist or the data format has changed.")
             
-        # Show some statistics
-        st.subheader("📊 Fund Statistics")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Total Funds", len(df))
-        with col2:
-            if "AuM (Cr)" in df.columns:
-                st.metric("Total AUM (Cr)", f"₹{df['AuM (Cr)'].sum():,.2f}")
-        with col3:
+        # Show return statistics
+        st.subheader("📈 Fund Returns")
+        
+        # Create columns for each return period
+        return_periods = ['1W', '1M', '3M', '6M', '1Y', '3Y', '5Y']
+        cols = st.columns(len(return_periods) + 1)  # +1 for the Fund Name
+        
+        # Display fund name in first column
+        with cols[0]:
+            st.markdown("**Fund**")
+            for i, fund in df.head(10).iterrows():
+                st.markdown(fund['Scheme Name'])
+        
+        # Display returns for each period
+        for idx, period in enumerate(return_periods, 1):
+            # Try different column name formats
+            col_name = next((col for col in [f"{period}", f"{period} Return", f"{period} Returns"] 
+                            if col in df.columns), None)
+            
+            if col_name and col_name in df.columns:
+                with cols[idx]:
+                    # Column header with period
+                    st.markdown(f"**{period}**")
+                    
+                    # Get top 10 funds for this period
+                    top_funds = df.nlargest(10, col_name)
+                    
+                    # Display each fund's return
+                    for _, fund in top_funds.iterrows():
+                        return_val = fund.get(col_name, None)
+                        if pd.notna(return_val):
+                            # Color code based on return value
+                            color = "green" if return_val > 0 else "red"
+                            st.markdown(f"<span style='color: {color}'>{return_val:.2f}%</span>", 
+                                       unsafe_allow_html=True)
+                        else:
+                            st.markdown("-")
             if "1W" in df.columns:
                 avg_return = df["1W"].mean()
                 st.metric("Avg 1W Return", f"{avg_return:.2f}%")
