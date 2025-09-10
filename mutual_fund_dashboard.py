@@ -169,4 +169,40 @@ def main():
                         dfs.append(df_cat)
 
             if dfs:
-                df = pd.concat(dfs, ignore_index=True)_
+                df = pd.concat(dfs, ignore_index=True)
+
+                # ✅ Drop columns with only None values
+                df = df.dropna(axis=1, how='all')
+            else:
+                df = pd.DataFrame()
+    else:
+        with st.spinner(f"Fetching {selected_category} funds data..."):
+            df = scrape_category(categories[selected_category], selected_category)
+
+            if not df.empty:
+                # ✅ Drop columns with only None values
+                df = df.dropna(axis=1, how='all')
+
+    if df is not None and not df.empty:
+        st.success(f"✅ Showing {selected_category} Funds ({len(df)} schemes)")
+
+        st.dataframe(
+            df,
+            use_container_width=True,
+            height=600,
+            hide_index=True
+        )
+
+        csv = df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Download as CSV",
+            data=csv,
+            file_name=f"{selected_category.lower().replace(' ', '_')}_funds.csv",
+            mime="text/csv"
+        )
+    else:
+        st.error("⚠️ Could not fetch data. Please try again later.")
+
+
+if __name__ == "__main__":
+    main()
