@@ -5,30 +5,6 @@ from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor
 import datetime
 
-# --- Auto refresh logic with single reload per day ---
-def should_refresh():
-    """Check if data should refresh once a day after 9AM."""
-    now = datetime.datetime.now()
-    today = now.date()
-    nine_am_today = now.replace(hour=9, minute=0, second=0, microsecond=0)
-
-    if "last_refresh_date" not in st.session_state:
-        st.session_state.last_refresh_date = None
-    if "refreshed_today" not in st.session_state:
-        st.session_state.refreshed_today = False
-
-    # Reset flag at 9AM each day
-    if now >= nine_am_today and st.session_state.last_refresh_date != today:
-        st.session_state.last_refresh_date = today
-        st.session_state.refreshed_today = False
-
-    # Trigger refresh if not refreshed yet today after 9AM
-    if now >= nine_am_today and not st.session_state.refreshed_today:
-        st.session_state.refreshed_today = True
-        return True
-
-    return False
-
 # Cached function to fetch html table data
 @st.cache_data(ttl=3600)  # Cache for 1 hour
 def fetch_table(url, rename_map=None):
@@ -75,7 +51,7 @@ def scrape_category(category, category_label):
         df_rank = futures["rank"].result()
     if df_returns is None:
         return pd.DataFrame()
-    
+
     def drop_common(df, common_cols):
         if df is not None:
             return df.drop(columns=[c for c in common_cols if c in df.columns], errors="ignore")
@@ -138,16 +114,7 @@ def main():
         "Index": "index"
     }
 
-    # Dropdown at top
     selected_category = st.selectbox("Select Fund Category:", list(categories.keys()))
-
-    # Check and trigger refresh once per day
-    if should_refresh():
-        st.info("Refreshing data for the day...")
-        st.cache_data.clear()
-        # One-time refresh using meta refresh tag to avoid flickering
-        st.markdown('<meta http-equiv="refresh" content="0">', unsafe_allow_html=True)
-        return
 
     st.title("📊 Mutual Fund Dashboard")
     st.write("Fetching live mutual fund data from Moneycontrol...")
