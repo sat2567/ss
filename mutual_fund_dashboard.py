@@ -5,25 +5,36 @@ from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor
 import datetime
 
-# --- Auto refresh logic ---
+# --- Auto refresh logic with single reload per day ---
 def should_refresh():
-    """Check if data should refresh (every day after 9 AM)."""
+    """Check if data should refresh once per day after 9 AM."""
     now = datetime.datetime.now()
-    today_9am = now.replace(hour=9, minute=0, second=0, microsecond=0)
-    if now >= today_9am:
-        if "last_refresh_date" not in st.session_state or st.session_state["last_refresh_date"] != now.date():
-            st.session_state["last_refresh_date"] = now.date()
-            st.cache_data.clear()  # Clear cache so fresh data loads
-            return True
+    today = now.date()
+    nine_am_today = now.replace(hour=9, minute=0, second=0, microsecond=0)
+
+    if "last_refresh_date" not in st.session_state:
+        st.session_state.last_refresh_date = None
+    if "refreshed_today" not in st.session_state:
+        st.session_state.refreshed_today = False
+
+    if now >= nine_am_today:
+        if st.session_state.last_refresh_date != today:
+            st.session_state.last_refresh_date = today
+            st.session_state.refreshed_today = False  # Reset for the new date
+
+    if not st.session_state.refreshed_today and st.session_state.last_refresh_date == today and now >= nine_am_today:
+        st.session_state.refreshed_today = True
+        return True
+
     return False
 
-# Cache the data to prevent re-fetching on every interaction
+# Cache data fetching for efficiency
 @st.cache_data(ttl=3600)  # Cache for 1 hour
 def fetch_table(url, rename_map=None):
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                      'AppleWebKit/537.36 (KHTML, like Gecko) '
-                      'Chrome/91.0.4472.124 Safari/537.36'
+        'User-Agent': ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                       'AppleWebKit/537.36 (KHTML, like Gecko) '
+                       'Chrome/91.0.4472.124 Safari/537.36')
     }
     try:
         response = requests.get(url, headers=headers, timeout=10)
@@ -82,7 +93,7 @@ def scrape_category(category, category_label):
                 combined[col].astype(str).str.replace('%', '', regex=False),
                 errors='coerce'
             )
-        elif combined[col].dtype == 'object':
+        elif combined[col].dtype == object:
             if combined[col].str.contains(',').any():
                 combined[col] = pd.to_numeric(
                     combined[col].str.replace(',', ''),
@@ -112,25 +123,23 @@ def scrape_category(category, category_label):
     return pd.DataFrame()
 
 def main():
-    # Dropdown moved to top
     categories = {
         "All Funds": "all",
-        "Flexi Cap": "flexi-cap-fund",
-        "Small Cap": "small-cap-fund",
-        "Mid Cap": "mid-cap-fund",
-        "Large Cap": "large-cap-fund",
+        "Flexi Cap": "flexi-cap",
+        "Small Cap": "small-cap",
+        "Mid Cap": "mid-cap",
+        "Large Cap": "large-cap",
         "ELSS": "elss",
-        "Sectoral": "sectoral-fund",
-        "Index": "index-fund"
+        "Sectoral": "sectoral",
+        "Index": "index"
     }
+
+    # Dropdown at top
     selected_category = st.selectbox("Select Fund Category:", list(categories.keys()))
 
+    # Auto refresh with single reload per day after 9 AM
     if should_refresh():
-        st.cache_data.clear()  # Clear cache so fresh data loads
-        # replaced experimental rerun by safe rerun
-        # Since st.experimental_rerun is deprecated, we use meta refresh instead
-        st.markdown('<meta http-equiv="refresh" content="0">', unsafe_allow_html=True)
-        return
+        st.experimental_rerun()
 
     st.title("📊 Mutual Fund Dashboard")
     st.write("Fetching live mutual fund data from Moneycontrol...")
@@ -151,11 +160,11 @@ def main():
     else:
         with st.spinner(f"Fetching {selected_category} funds data..."):
             df = scrape_category(categories[selected_category], selected_category)
-            if not df.empty:
+            if df is not None and not df.empty:
                 df = df.dropna(axis=1, how='all')
 
     if df is not None and not df.empty:
-        st.success(f"✅ Showing {selected_category} Funds ({len(df)} schemes)")
+        st.success(f"✅ Showing {selected_category} Funds ({len(df)})")
         st.dataframe(df, use_container_width=True, height=600, hide_index=True)
         csv = df.to_csv(index=False).encode('utf-8')
         st.download_button(
