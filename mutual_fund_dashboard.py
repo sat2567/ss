@@ -146,55 +146,146 @@ def main():
             fund_data = filtered_funds[filtered_funds['Scheme Name'] == selected_fund].iloc[0]
             
             # Display fund header
-            st.markdown(f"## {fund_data['Scheme Name']}")
+            st.markdown(f"# {fund_data['Scheme Name']}")
             st.markdown(f"**Category:** {fund_data['Category']} | **Plan:** {fund_data['Plan']}")
             
-            # Display returns in a card
-            st.markdown("### 📈 Performance Metrics")
+            # Create tabs for different sections
+            tab1, tab2, tab3 = st.tabs(["📊 Overview", "📈 Performance", "📋 Details"])
             
-            # Get available return periods
-            return_periods = [col for col in ['1W', '1M', '3M', '6M', '1Y', '3Y', '5Y'] 
-                            if col in fund_data and pd.notna(fund_data[col])]
-            
-            # Create columns for returns
-            cols = st.columns(len(return_periods) if return_periods else 1)
-            
-            for idx, period in enumerate(return_periods):
-                with cols[idx]:
-                    value = fund_data[period]
-                    st.markdown(f"""
-                    <div class="fund-card">
-                        <div class="fund-metric-label">{period} Return</div>
-                        <div class="fund-metric" style="color: {'#28a745' if value >= 0 else '#dc3545'}">
-                            {value:+.2f}%
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-            
-            # Show similar funds in the same category
-            st.markdown("### 🔄 Similar Funds in Same Category")
-            similar_funds = filtered_funds[
-                (filtered_funds['Category'] == fund_data['Category']) &
-                (filtered_funds['Scheme Name'] != fund_data['Scheme Name'])
-            ]
-            
-            if not similar_funds.empty:
-                # Show top 5 similar funds by 1Y return (if available)
-                if '1Y' in similar_funds.columns:
-                    similar_funds = similar_funds.sort_values('1Y', ascending=False).head(5)
+            with tab1:
+                # Display key metrics in a grid
+                st.markdown("### 📊 Key Metrics")
                 
-                # Format the table
-                display_cols = ['Scheme Name']
-                for period in ['1M', '3M', '6M', '1Y', '3Y', '5Y']:
-                    if period in similar_funds.columns:
-                        display_cols.append(period)
+                # Define the metrics to show in the grid
+                metric_cols = st.columns(4)
                 
+                # Row 1: Basic Info
+                with metric_cols[0]:
+                    if 'Nav' in fund_data and pd.notna(fund_data['Nav']):
+                        st.metric("NAV", f"₹{fund_data['Nav']:,.2f}")
+                with metric_cols[1]:
+                    if 'Aum' in fund_data and pd.notna(fund_data['Aum']):
+                        st.metric("AUM", f"₹{fund_data['Aum']:,.2f} Cr")
+                with metric_cols[2]:
+                    if 'Expense Ratio' in fund_data and pd.notna(fund_data['Expense Ratio']):
+                        st.metric("Expense Ratio", f"{fund_data['Expense Ratio']}%")
+                with metric_cols[3]:
+                    if 'Exit Load' in fund_data and pd.notna(fund_data['Exit Load']):
+                        st.metric("Exit Load", fund_data['Exit Load'])
+                
+                # Row 2: Risk and Rating
+                metric_cols2 = st.columns(4)
+                with metric_cols2[0]:
+                    if 'Risk Level' in fund_data and pd.notna(fund_data['Risk Level']):
+                        st.metric("Risk Level", fund_data['Risk Level'])
+                with metric_cols2[1]:
+                    if 'Crisil Rank' in fund_data and pd.notna(fund_data['Crisil Rank']):
+                        st.metric("Crisil Rank", fund_data['Crisil Rank'])
+                with metric_cols2[2]:
+                    if 'Min Sip' in fund_data and pd.notna(fund_data['Min Sip']):
+                        st.metric("Min SIP", f"₹{fund_data['Min Sip']}")
+                with metric_cols2[3]:
+                    if 'Launch Date' in fund_data and pd.notna(fund_data['Launch Date']):
+                        st.metric("Launch Date", fund_data['Launch Date'])
+                
+                # Display all available data in a table
+                st.markdown("### 📋 All Available Data")
                 st.dataframe(
-                    similar_funds[display_cols].set_index('Scheme Name'),
+                    pd.DataFrame({
+                        'Metric': fund_data.index,
+                        'Value': fund_data.values
+                    }).set_index('Metric'),
                     use_container_width=True
                 )
-            else:
-                st.info("No similar funds found in the same category.")
+            
+            with tab1:  # Performance Tab
+                st.markdown("### 📈 Returns Over Different Periods")
+                
+                # Get available return periods
+                return_periods = [col for col in ['1W', '1M', '3M', '6M', '1Y', '3Y', '5Y'] 
+                                if col in fund_data and pd.notna(fund_data[col])]
+                
+                if return_periods:
+                    # Create columns for returns
+                    cols = st.columns(len(return_periods) if len(return_periods) <= 4 else 4)
+                    
+                    for idx, period in enumerate(return_periods):
+                        with cols[idx % 4]:
+                            value = fund_data[period]
+                            st.metric(
+                                f"{period} Return",
+                                f"{value:+.2f}%",
+                                delta=None,
+                                delta_color=("normal" if value >= 0 else "inverse")
+                            )
+                    
+                    # Show performance chart if we have enough data points
+                    if len(return_periods) >= 3:
+                        st.markdown("### 📊 Performance Chart")
+                        try:
+                            chart_data = pd.DataFrame({
+                                'Period': return_periods,
+                                'Return': [fund_data[p] for p in return_periods]
+                            })
+                            st.bar_chart(
+                                chart_data.set_index('Period'),
+                                use_container_width=True
+                            )
+                        except:
+                            pass
+                else:
+                    st.warning("No return data available for this fund.")
+                
+                # Show similar funds for comparison
+                st.markdown("### 🔄 Compare with Similar Funds")
+                similar_funds = filtered_funds[
+                    (filtered_funds['Category'] == fund_data['Category']) &
+                    (filtered_funds['Scheme Name'] != fund_data['Scheme Name'])
+                ]
+                
+                if not similar_funds.empty:
+                    # Get top 5 similar funds by AUM
+                    if 'Aum' in similar_funds.columns:
+                        similar_funds = similar_funds.sort_values('Aum', ascending=False).head(5)
+                    
+                    # Show comparison table
+                    st.dataframe(
+                        similar_funds[['Scheme Name', '1M', '3M', '6M', '1Y', '3Y', '5Y']].set_index('Scheme Name'),
+                        use_container_width=True
+                    )
+                else:
+                    st.info("No similar funds found in the same category.")
+            
+            with tab2:  # Details Tab
+                st.markdown("### 📋 Fund Details")
+                
+                # Display all available information in an expandable section
+                with st.expander("View Complete Fund Details", expanded=True):
+                    # Convert fund data to a clean dictionary
+                    fund_details = {
+                        'Basic Information': {},
+                        'Performance Metrics': {},
+                        'Investment Details': {}
+                    }
+                    
+                    # Categorize the data
+                    basic_info_keys = ['Scheme Name', 'Plan', 'Category', 'Launch Date', 'Benchmark']
+                    perf_keys = [col for col in fund_data.index if any(k in col for k in ['Return', 'Growth', 'Yield', 'Risk', 'Alpha', 'Beta', 'Sharpe', 'Sortino'])]
+                    invest_keys = ['Min SIP', 'Min Lumpsum', 'SIP Available', 'Exit Load', 'Lock-in Period']
+                    
+                    for key, value in fund_data.items():
+                        if key in basic_info_keys:
+                            fund_details['Basic Information'][key] = value
+                        elif key in perf_keys or any(k in key for k in ['1M', '3M', '6M', '1Y', '3Y', '5Y']):
+                            fund_details['Performance Metrics'][key] = value
+                        elif key in invest_keys or 'Min' in key or 'Max' in key or 'Expense' in key:
+                            fund_details['Investment Details'][key] = value
+                    
+                    # Display each section
+                    for section, data in fund_details.items():
+                        if data:  # Only show if there's data
+                            st.markdown(f"#### {section}")
+                            st.json(data, expanded=False)
         else:
             st.info("👈 Select a fund from the filters to view details.")
 
@@ -342,23 +433,41 @@ def scrape_category(category, category_label):
     else:
         return None
 
-    # Clean and convert return columns to numeric
-    for period in ['1W', '1M', '3M', '6M', '1Y', '3Y', '5Y']:
-        if period in combined.columns:
-            # Remove percentage sign and convert to float
-            combined[period] = pd.to_numeric(
-                combined[period].astype(str).str.rstrip('%'), 
+    # Clean and convert all numeric columns
+    for col in combined.columns:
+        # Handle percentage columns
+        if any(period in col for period in ['1W', '1M', '3M', '6M', '1Y', '3Y', '5Y', 'Return', 'Change']):
+            combined[col] = pd.to_numeric(
+                combined[col].astype(str).str.rstrip('%'), 
                 errors='coerce'
             )
+        # Handle numeric columns with commas
+        elif combined[col].dtype == 'object':
+            # Check if the column contains numeric values with commas
+            if combined[col].str.contains(',').any():
+                combined[col] = pd.to_numeric(
+                    combined[col].str.replace(',', ''),
+                    errors='ignore'
+                )
 
     # Add category info and clean up
     if not combined.empty:
         combined["Category"] = category_label
         
-        # Keep only essential columns
-        essential_columns = ['Scheme Name', 'Plan', 'Category']
-        return_columns = [col for col in ['1W', '1M', '3M', '6M', '1Y', '3Y', '5Y'] if col in combined.columns]
-        combined = combined[essential_columns + return_columns]
+        # Ensure we have all important columns
+        important_columns = [
+            'Scheme Name', 'Plan', 'Category', 'NAV', 'AUM', 'Expense Ratio',
+            '1W', '1M', '3M', '6M', '1Y', '3Y', '5Y', 'Crisil Rank',
+            'Risk Level', 'Exit Load', 'Min SIP', 'Min Lumpsum', 'Launch Date'
+        ]
+        
+        # Keep all available columns, but ensure important ones are included
+        available_columns = [col for col in important_columns if col in combined.columns]
+        other_columns = [col for col in combined.columns if col not in important_columns]
+        combined = combined[available_columns + other_columns]
+        
+        # Clean up column names for better display
+        combined.columns = [col.replace('_', ' ').title() for col in combined.columns]
         
         # Drop any rows with missing scheme names
         combined = combined.dropna(subset=['Scheme Name'])
