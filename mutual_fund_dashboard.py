@@ -118,6 +118,25 @@ def scrape_category(category, category_label):
         return combined
 
     return pd.DataFrame()
+# ✅ Rename return columns into "Return <period>"
+def rename_return_col(col):
+    col_clean = col.replace("_x", "").replace("_y", "").upper()
+    mapping = {
+        "1W": "Return 1W",
+        "1M": "Return 1M",
+        "3M": "Return 3M",
+        "6M": "Return 6M",
+        "YTD": "Return YTD",
+        "1Y": "Return 1Y",
+        "2Y": "Return 2Y",
+        "3Y": "Return 3Y",
+        "5Y": "Return 5Y",
+        "10Y": "Return 10Y"
+    }
+    return mapping.get(col_clean, col_clean)
+
+combined.columns = [rename_return_col(c) for c in combined.columns]
+
 
 
 def main():
