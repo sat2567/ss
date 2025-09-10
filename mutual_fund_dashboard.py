@@ -5,6 +5,19 @@ from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 import time
+# --- Auto refresh logic ---
+def should_refresh():
+    """Check if data should refresh (every day after 9 AM)."""
+    now = datetime.datetime.now()
+    today_9am = now.replace(hour=9, minute=0, second=0, microsecond=0)
+
+    # If it's past 9 AM and last refresh wasn't today → refresh
+    if now >= today_9am:
+        if "last_refresh_date" not in st.session_state or st.session_state["last_refresh_date"] != now.date():
+            st.session_state["last_refresh_date"] = now.date()
+            st.cache_data.clear()  # ✅ Clear cache so fresh data loads
+            return True
+    return False
 
 # Cache the data to prevent re-fetching on every interaction
 @st.cache_data(ttl=3600)  # Cache for 1 hour
@@ -106,6 +119,8 @@ def scrape_category(category, category_label):
 
 
 def main():
+    if should_refresh():
+        st.experimental_rerun()
     st.title("📊 Mutual Fund Dashboard")
     st.write("Fetching live mutual fund data from Moneycontrol...")
 
