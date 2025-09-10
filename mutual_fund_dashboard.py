@@ -1,41 +1,171 @@
 import streamlit as st
+import pandas as pd
+import requests
+from bs4 import BeautifulSoup
+from concurrent.futures import ThreadPoolExecutor
+import datetime
 
-# Function to safely trigger a rerun using fallback if experimental_rerun is missing
-def safe_rerun():
-    # Streamlit 1.49.1 removed experimental_rerun; fallback by meta refresh
-    try:
-        st.experimental_rerun()
-    except AttributeError:
-        # HTML meta refresh forces page reload immediately
-        st.markdown('<meta http-equiv="refresh" content="0">', unsafe_allow_html=True)
-
-# Dummy condition you might have for refresh; replace with your logic
+# --- Auto refresh logic ---
 def should_refresh():
-    # For example, refresh when user clicks button or a checkbox is checked
-    return st.session_state.get("refresh_flag", False)
+    """Check if data should refresh (every day after 9 AM)."""
+    now = datetime.datetime.now()
+    today_9am = now.replace(hour=9, minute=0, second=0, microsecond=0)
+    if now >= today_9am:
+        if "last_refresh_date" not in st.session_state or st.session_state["last_refresh_date"] != now.date():
+            st.session_state["last_refresh_date"] = now.date()
+            st.cache_data.clear()  # Clear cache so fresh data loads
+            return True
+    return False
 
-# Main app code
-def main():
-    st.title("📊 Mutual Fund Dashboard")
+# Cache the data to prevent re-fetching on every interaction
+@st.cache_data(ttl=3600)  # Cache for 1 hour
+def fetch_table(url, rename_map=None):
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                      'AppleWebKit/537.36 (KHTML, like Gecko) '
+                      'Chrome/91.0.4472.124 Safari/537.36'
+    }
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+        table = soup.find("table", class_="mctable1")
+        if not table:
+            return None
+        rows = table.find_all("tr")
+        data = []
+        for row in rows:
+            cols = row.find_all(["td", "th"])
+            cols = [ele.get_text(strip=True) for ele in cols]
+            data.append(cols)
+        if len(data) > 1:
+            df = pd.DataFrame(data[1:], columns=data[0])
+            if rename_map:
+                df.rename(columns=rename_map, inplace=True)
+            return df
+        return None
+    except Exception as e:
+        st.error(f"Error fetching data from {url}: {str(e)}")
+        return None
 
-    # Add a checkbox to let user decide to refresh or not
-    refresh_request = st.checkbox("Refresh data manually")
-
-    if refresh_request:
-        # Set session state flag for refresh
-        st.session_state["refresh_flag"] = True
+def scrape_category(category, category_label):
+    base = "https://www.moneycontrol.com/mutual-funds/performance-tracker"
+    urls = {
+        "returns": f"{base}/returns/{category}.html",
+        "rank": f"{base}/ranks/{category}.html"
+    }
+    with ThreadPoolExecutor() as executor:
+        futures = {
+            "returns": executor.submit(fetch_table, urls["returns"]),
+            "rank": executor.submit(fetch_table, urls["rank"], {"Crisil Rank": "Crisil Rating"})
+        }
+        df_returns = futures["returns"].result()
+        df_rank = futures["rank"].result()
+    if df_returns is None:
+        return pd.DataFrame()
+    def drop_common(df, common_cols):
+        if df is not None:
+            return df.drop(columns=[c for c in common_cols if c in df.columns], errors="ignore")
+        return None
+    rank_df = drop_common(df_rank, ["Category Name", "Crisil Rating"]) if df_rank is not None else None
+    combined = df_returns
+    if rank_df is not None and not rank_df.empty and 'Scheme Name' in rank_df.columns and 'Plan' in rank_df.columns:
+        combined = combined.merge(rank_df, on=["Scheme Name", "Plan"], how="left")
+    if 'Plan' in combined.columns and 'Scheme Name' in combined.columns:
+        combined = combined[combined["Plan"] == "Regular"]
+        combined = combined[combined["Scheme Name"].str.contains("Growth", case=False, na=False)]
     else:
-        st.session_state["refresh_flag"] = False
+        return pd.DataFrame()
+    for col in combined.columns:
+        if any(period in col for period in ['1W', '1M', '3M', '6M', '1Y', '2Y', '3Y', '5Y', '10Y', 'YTD', 'Return', 'Change']):
+            combined[col] = pd.to_numeric(
+                combined[col].astype(str).str.replace('%', '', regex=False),
+                errors='coerce'
+            )
+        elif combined[col].dtype == 'object':
+            if combined[col].str.contains(',').any():
+                combined[col] = pd.to_numeric(
+                    combined[col].str.replace(',', ''),
+                    errors='ignore'
+                )
+    if not combined.empty:
+        combined["Category"] = category_label
+        combined = combined.dropna(subset=['Scheme Name'])
+        combined = combined.dropna(axis=1, how='all')
+        def rename_return_col(col):
+            col_clean = col.replace("_x", "").replace("_y", "").upper()
+            mapping = {
+                "1W": "Return 1W",
+                "1M": "Return 1M",
+                "3M": "Return 3M",
+                "6M": "Return 6M",
+                "YTD": "Return YTD",
+                "1Y": "Return 1Y",
+                "2Y": "Return 2Y",
+                "3Y": "Return 3Y",
+                "5Y": "Return 5Y",
+                "10Y": "Return 10Y"
+            }
+            return mapping.get(col_clean, col_clean)
+        combined.columns = [rename_return_col(c) for c in combined.columns]
+        return combined
+    return pd.DataFrame()
 
-    # If refresh condition met, clear cache and rerun safely
+def main():
+    # Dropdown moved to top
+    categories = {
+        "All Funds": "all",
+        "Flexi Cap": "flexi-cap-fund",
+        "Small Cap": "small-cap-fund",
+        "Mid Cap": "mid-cap-fund",
+        "Large Cap": "large-cap-fund",
+        "ELSS": "elss",
+        "Sectoral": "sectoral-fund",
+        "Index": "index-fund"
+    }
+    selected_category = st.selectbox("Select Fund Category:", list(categories.keys()))
+
     if should_refresh():
-        # Clear cached data gracefully
-        st.cache_data.clear()
-        safe_rerun()
+        st.cache_data.clear()  # Clear cache so fresh data loads
+        # replaced experimental rerun by safe rerun
+        # Since st.experimental_rerun is deprecated, we use meta refresh instead
+        st.markdown('<meta http-equiv="refresh" content="0">', unsafe_allow_html=True)
+        return
 
-    # Example content: Replace this with your dashboard/data logic
-    st.write("Welcome to the mutual fund dashboard!")
-    st.write("Add your data display and analysis here.")
+    st.title("📊 Mutual Fund Dashboard")
+    st.write("Fetching live mutual fund data from Moneycontrol...")
+
+    if categories[selected_category] == "all":
+        with st.spinner("Fetching all categories..."):
+            dfs = []
+            for cat_name, cat_slug in categories.items():
+                if cat_slug != "all":
+                    df_cat = scrape_category(cat_slug, cat_name)
+                    if df_cat is not None and not df_cat.empty:
+                        dfs.append(df_cat)
+            if dfs:
+                df = pd.concat(dfs, ignore_index=True)
+                df = df.dropna(axis=1, how='all')
+            else:
+                df = pd.DataFrame()
+    else:
+        with st.spinner(f"Fetching {selected_category} funds data..."):
+            df = scrape_category(categories[selected_category], selected_category)
+            if not df.empty:
+                df = df.dropna(axis=1, how='all')
+
+    if df is not None and not df.empty:
+        st.success(f"✅ Showing {selected_category} Funds ({len(df)} schemes)")
+        st.dataframe(df, use_container_width=True, height=600, hide_index=True)
+        csv = df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Download as CSV",
+            data=csv,
+            file_name=f"{selected_category.lower().replace(' ', '_')}_funds.csv",
+            mime="text/csv"
+        )
+    else:
+        st.error("⚠️ Could not fetch data. Please try again later.")
 
 if __name__ == "__main__":
     main()
