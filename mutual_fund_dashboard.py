@@ -80,12 +80,16 @@ def scrape_category(category, category_label):
     else:
         return pd.DataFrame()
 
+    # Updated pd.to_numeric usage without deprecated errors='ignore'
     for col in combined.columns:
         if any(period in col for period in ['1W', '1M', '3M', '6M', '1Y', '2Y', '3Y', '5Y', '10Y', 'YTD', 'Return', 'Change']):
             combined[col] = pd.to_numeric(combined[col].astype(str).str.replace('%', '', regex=False), errors='coerce')
         elif combined[col].dtype == object:
-            if combined[col].str.contains(',').any():
-                combined[col] = pd.to_numeric(combined[col].str.replace(',', ''), errors='ignore')
+            # Replace commas then try conversion safely
+            try:
+                combined[col] = pd.to_numeric(combined[col].str.replace(',', ''))
+            except Exception:
+                pass
 
     if not combined.empty:
         combined["Category"] = category_label
@@ -115,7 +119,7 @@ def scrape_category(category, category_label):
 
 def main():
     if should_refresh():
-        # st.experimental_rerun() is removed to prevent errors/flickering
+        # Instead of experimental_rerun (removed), just clear cache and continue
         st.cache_data.clear()
 
     categories = {
@@ -142,4 +146,32 @@ def main():
             for cat_name, cat_slug in categories.items():
                 if cat_slug != "all":
                     df_cat = scrape_category(cat_slug, cat_name)
-                    if df_cat is not None and not
+                    if df_cat is not None and not df_cat.empty:
+                        dfs.append(df_cat)
+            if dfs:
+                df = pd.concat(dfs, ignore_index=True)
+                df = df.dropna(axis=1, how='all')
+            else:
+                df = pd.DataFrame()
+    else:
+        with st.spinner(f"Fetching {selected_category} funds data..."):
+            df = scrape_category(categories[selected_category], selected_category)
+            if df is not None and not df.empty:
+                df = df.dropna(axis=1, how='all')
+
+    if df is not None and not df.empty:
+        st.success(f"✅ Showing {selected_category} Funds ({len(df)})")
+        # Updated to replace deprecated use_container_width argument
+        st.dataframe(df, height=600, hide_index=True, width='stretch')
+        csv = df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Download as CSV",
+            data=csv,
+            file_name=f"{selected_category.lower().replace(' ', '_')}_funds.csv",
+            mime="text/csv"
+        )
+    else:
+        st.error("⚠️ Could not fetch data. Please try again later.")
+
+if __name__ == "__main__":
+    main()
