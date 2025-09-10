@@ -3,7 +3,6 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor
-import numpy as np
 
 # ========== SCRAPING HELPERS ==========
 
@@ -76,62 +75,33 @@ def scrape_category(category, category_label):
     else:
         return pd.DataFrame()
 
-    # Clean numeric columns
+    # Convert numeric columns
     for col in combined.columns:
-        if any(period in col for period in ['1W', '1M', '3M', '6M', '1Y', '3Y', '5Y', 'Return', 'Change']):
+        if any(period in col for period in ['1W', '1M', '3M', '6M', '1Y', '2Y', '3Y', '5Y', '10Y', 'Ytd', 'Return', 'Change']):
             combined[col] = pd.to_numeric(combined[col].astype(str).str.rstrip('%'), errors='coerce')
         elif combined[col].dtype == 'object' and combined[col].str.contains(',').any():
             combined[col] = pd.to_numeric(combined[col].str.replace(',', ''), errors='ignore')
 
     if not combined.empty:
         combined["Category"] = category_label
-        important_columns = [
-            'Scheme Name', 'Plan', 'Category', 'NAV', 'AUM', 'Expense Ratio',
-            '1W', '1M', '3M', '6M', '1Y', '3Y', '5Y', 'Crisil Rank',
-            'Risk Level', 'Exit Load', 'Min SIP', 'Min Lumpsum', 'Launch Date'
-        ]
-        available_columns = [col for col in important_columns if col in combined.columns]
-        other_columns = [col for col in combined.columns if col not in important_columns]
-        combined = combined[available_columns + other_columns]
-        combined.columns = [col.replace('_', ' ').title() for col in combined.columns]
-        combined = combined.dropna(subset=['Scheme Name'])
+
+        # ✅ Standardize return column names
+        rename_map = {
+            '1W': 'Return_1W', '1M': 'Return_1M', '3M': 'Return_3M', '6M': 'Return_6M',
+            'Ytd': 'Return_YTD', '1Y': 'Return_1Y', '2Y': 'Return_2Y', '3Y': 'Return_3Y',
+            '5Y': 'Return_5Y', '10Y': 'Return_10Y'
+        }
+        combined.rename(columns=lambda c: rename_map.get(c.replace('_x', '').replace('_y', ''), c), inplace=True)
+
+        # Drop duplicate columns
+        combined = combined.loc[:, ~combined.columns.duplicated()]
+
+        # Drop columns that are fully None/NaN
+        combined = combined.dropna(axis=1, how='all')
+
         return combined
 
     return pd.DataFrame()
-
-
-def scrape_category_ranks(category):
-    try:
-        url = f"https://www.moneycontrol.com/mutual-funds/performance-tracker/ranks/{category}.html"
-        response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
-        table = soup.find('table', {'class': 'mctable1'})
-        if not table:
-            return None
-
-        headers = [th.get_text(strip=True) for th in table.find('thead').find_all('th')]
-        rows = []
-        for tr in table.find('tbody').find_all('tr'):
-            row = [td.get_text(strip=True) for td in tr.find_all('td')]
-            if len(row) == len(headers):
-                rows.append(row)
-        if not rows:
-            return None
-
-        df = pd.DataFrame(rows, columns=headers)
-        if 'Plan' in df.columns and 'Scheme Name' in df.columns:
-            df = df[df['Plan'] == 'Regular']
-            df = df[df['Scheme Name'].str.contains('Growth', case=False, na=False)]
-
-        rank_columns = [col for col in df.columns if 'rank' in col.lower()]
-        for col in rank_columns:
-            df[col] = pd.to_numeric(df[col].str.extract(r'(\d+)', expand=False), errors='coerce')
-
-        return df[['Scheme Name'] + rank_columns].dropna(how='all', axis=1)
-    except Exception as e:
-        st.error(f"Error fetching ranking data: {str(e)}")
-        return None
 
 
 # ========== MAIN DASHBOARD ==========
@@ -159,13 +129,44 @@ def main():
             dfs = []
             for cat_name, cat_slug in categories.items():
                 if cat_slug != "all":
-                    df = scrape_category(cat_slug, cat_name)
-                    if df is not None and not df.empty:
-                        dfs.append(df)
-            df = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
+                    df_cat = scrape_category(cat_slug, cat_name)
+                    if df_cat is not None and not df_cat.empty:
+                        dfs.append(df_cat)
+
+            if dfs:
+                df = pd.concat(dfs, ignore_index=True)
+
+                # Remove duplicates and None-only columns
+                df = df.loc[:, ~df.columns.duplicated()]
+                df = df.dropna(axis=1, how='all')
+
+                # ✅ Final cleaned set of columns
+                keep_cols = [
+                    'Scheme Name', 'Category', 'NAV', 'AUM', 'Expense Ratio',
+                    'Return_1W', 'Return_1M', 'Return_3M', 'Return_6M',
+                    'Return_YTD', 'Return_1Y', 'Return_2Y', 'Return_3Y',
+                    'Return_5Y', 'Return_10Y',
+                    'Crisil Rank', 'Risk Level', 'Exit Load',
+                    'Min SIP', 'Min Lumpsum', 'Launch Date'
+                ]
+                df = df[[c for c in keep_cols if c in df.columns]]
+            else:
+                df = pd.DataFrame()
     else:
         with st.spinner(f"Fetching {selected_category} funds data..."):
             df = scrape_category(categories[selected_category], selected_category)
+
+            if not df.empty:
+                # Keep only relevant columns
+                keep_cols = [
+                    'Scheme Name', 'Category', 'NAV', 'AUM', 'Expense Ratio',
+                    'Return_1W', 'Return_1M', 'Return_3M', 'Return_6M',
+                    'Return_YTD', 'Return_1Y', 'Return_2Y', 'Return_3Y',
+                    'Return_5Y', 'Return_10Y',
+                    'Crisil Rank', 'Risk Level', 'Exit Load',
+                    'Min SIP', 'Min Lumpsum', 'Launch Date'
+                ]
+                df = df[[c for c in keep_cols if c in df.columns]]
 
     if df is not None and not df.empty:
         st.success(f"✅ Showing {selected_category} Funds ({len(df)} schemes)")
@@ -184,4 +185,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
