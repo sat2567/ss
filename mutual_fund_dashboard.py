@@ -3,10 +3,9 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
 import datetime
-
 import time
+
 # --- Auto refresh logic ---
 def should_refresh():
     """Check if data should refresh (every day after 9 AM)."""
@@ -20,6 +19,7 @@ def should_refresh():
             st.cache_data.clear()  # ✅ Clear cache so fresh data loads
             return True
     return False
+
 
 # Cache the data to prevent re-fetching on every interaction
 @st.cache_data(ttl=3600)  # Cache for 1 hour
@@ -96,7 +96,7 @@ def scrape_category(category, category_label):
 
     # Clean numbers
     for col in combined.columns:
-        if any(period in col for period in ['1W', '1M', '3M', '6M', '1Y', '2Y', '3Y', '5Y', '10Y', 'Ytd', 'Return', 'Change']):
+        if any(period in col for period in ['1W', '1M', '3M', '6M', '1Y', '2Y', '3Y', '5Y', '10Y', 'YTD', 'Return', 'Change']):
             combined[col] = pd.to_numeric(
                 combined[col].astype(str).str.replace('%', '', regex=False),
                 errors='coerce'
@@ -115,28 +115,28 @@ def scrape_category(category, category_label):
         # ✅ Drop columns with only None values
         combined = combined.dropna(axis=1, how='all')
 
+        # ✅ Rename return columns into "Return <period>"
+        def rename_return_col(col):
+            col_clean = col.replace("_x", "").replace("_y", "").upper()
+            mapping = {
+                "1W": "Return 1W",
+                "1M": "Return 1M",
+                "3M": "Return 3M",
+                "6M": "Return 6M",
+                "YTD": "Return YTD",
+                "1Y": "Return 1Y",
+                "2Y": "Return 2Y",
+                "3Y": "Return 3Y",
+                "5Y": "Return 5Y",
+                "10Y": "Return 10Y"
+            }
+            return mapping.get(col_clean, col_clean)
+
+        combined.columns = [rename_return_col(c) for c in combined.columns]
+
         return combined
 
     return pd.DataFrame()
-# ✅ Rename return columns into "Return <period>"
-def rename_return_col(col):
-    col_clean = col.replace("_x", "").replace("_y", "").upper()
-    mapping = {
-        "1W": "Return 1W",
-        "1M": "Return 1M",
-        "3M": "Return 3M",
-        "6M": "Return 6M",
-        "YTD": "Return YTD",
-        "1Y": "Return 1Y",
-        "2Y": "Return 2Y",
-        "3Y": "Return 3Y",
-        "5Y": "Return 5Y",
-        "10Y": "Return 10Y"
-    }
-    return mapping.get(col_clean, col_clean)
-
-combined.columns = [rename_return_col(c) for c in combined.columns]
-
 
 
 def main():
@@ -169,40 +169,4 @@ def main():
                         dfs.append(df_cat)
 
             if dfs:
-                df = pd.concat(dfs, ignore_index=True)
-
-                # ✅ Drop columns with only None values
-                df = df.dropna(axis=1, how='all')
-            else:
-                df = pd.DataFrame()
-    else:
-        with st.spinner(f"Fetching {selected_category} funds data..."):
-            df = scrape_category(categories[selected_category], selected_category)
-
-            if not df.empty:
-                # ✅ Drop columns with only None values
-                df = df.dropna(axis=1, how='all')
-
-    if df is not None and not df.empty:
-        st.success(f"✅ Showing {selected_category} Funds ({len(df)} schemes)")
-
-        st.dataframe(
-            df,
-            use_container_width=True,
-            height=600,
-            hide_index=True
-        )
-
-        csv = df.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="📥 Download as CSV",
-            data=csv,
-            file_name=f"{selected_category.lower().replace(' ', '_')}_funds.csv",
-            mime="text/csv"
-        )
-    else:
-        st.error("⚠️ Could not fetch data. Please try again later.")
-
-
-if __name__ == "__main__":
-    main()
+                df = pd.concat(dfs, ignore_index=True)_
