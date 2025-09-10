@@ -3,6 +3,8 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+import time
 
 # Cache the data to prevent re-fetching on every interaction
 @st.cache_data(ttl=3600)  # Cache for 1 hour
@@ -59,10 +61,17 @@ def scrape_category(category, category_label):
     if df_returns is None:
         return pd.DataFrame()
 
+    def drop_common(df, common_cols):
+        if df is not None:
+            return df.drop(columns=[c for c in common_cols if c in df.columns], errors="ignore")
+        return None
+
+    rank_df = drop_common(df_rank, ["Category Name", "Crisil Rating"]) if df_rank is not None else None
+
     combined = df_returns
 
-    if df_rank is not None and not df_rank.empty and 'Scheme Name' in df_rank.columns and 'Plan' in df_rank.columns:
-        combined = combined.merge(df_rank, on=["Scheme Name", "Plan"], how="left")
+    if rank_df is not None and not rank_df.empty and 'Scheme Name' in rank_df.columns and 'Plan' in rank_df.columns:
+        combined = combined.merge(rank_df, on=["Scheme Name", "Plan"], how="left")
 
     if 'Plan' in combined.columns and 'Scheme Name' in combined.columns:
         combined = combined[combined["Plan"] == "Regular"]
@@ -87,6 +96,10 @@ def scrape_category(category, category_label):
     if not combined.empty:
         combined["Category"] = category_label
         combined = combined.dropna(subset=['Scheme Name'])
+
+        # ✅ Drop columns with only None values
+        combined = combined.dropna(axis=1, how='all')
+
         return combined
 
     return pd.DataFrame()
@@ -121,11 +134,18 @@ def main():
 
             if dfs:
                 df = pd.concat(dfs, ignore_index=True)
+
+                # ✅ Drop columns with only None values
+                df = df.dropna(axis=1, how='all')
             else:
                 df = pd.DataFrame()
     else:
         with st.spinner(f"Fetching {selected_category} funds data..."):
             df = scrape_category(categories[selected_category], selected_category)
+
+            if not df.empty:
+                # ✅ Drop columns with only None values
+                df = df.dropna(axis=1, how='all')
 
     if df is not None and not df.empty:
         st.success(f"✅ Showing {selected_category} Funds ({len(df)} schemes)")
