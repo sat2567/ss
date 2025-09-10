@@ -1,56 +1,41 @@
 import streamlit as st
+import pandas as pd
 import requests
 from bs4 import BeautifulSoup
-import pandas as pd
 from concurrent.futures import ThreadPoolExecutor
-import time
+import datetime
 
-# Configure Streamlit page
-st.set_page_config(
-    page_title="Mutual Fund Dashboard",
-    page_icon="📈",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# --- Auto refresh logic ---
+def should_refresh():
+    now = datetime.datetime.now()
+    today_9am = now.replace(hour=9, minute=0, second=0, microsecond=0)
+    if now >= today_9am:
+        if "last_refresh_date" not in st.session_state or st.session_state["last_refresh_date"] != now.date():
+            st.session_state["last_refresh_date"] = now.date()
+            st.cache_data.clear()
+            return True
+    return False
 
-# Add custom CSS for better styling
-st.markdown("""
-<style>
-    .main {
-        padding: 2rem;
-    }
-    .stDataFrame {
-        width: 100%;
-    }
-    .stDownloadButton button {
-        width: 100%;
-        margin-top: 1rem;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# Cache the data to prevent re-fetching on every interaction
-@st.cache_data(ttl=3600)  # Cache for 1 hour
+@st.cache_data(ttl=3600)
 def fetch_table(url, rename_map=None):
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                      'AppleWebKit/537.36 (KHTML, like Gecko) '
+                      'Chrome/91.0.4472.124 Safari/537.36'
     }
     try:
         response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")
         table = soup.find("table", class_="mctable1")
-
         if not table:
             return None
-
         rows = table.find_all("tr")
         data = []
         for row in rows:
             cols = row.find_all(["td", "th"])
             cols = [ele.get_text(strip=True) for ele in cols]
             data.append(cols)
-
         if len(data) > 1:
             df = pd.DataFrame(data[1:], columns=data[0])
             if rename_map:
@@ -65,90 +50,75 @@ def scrape_category(category, category_label):
     base = "https://www.moneycontrol.com/mutual-funds/performance-tracker"
     urls = {
         "returns": f"{base}/returns/{category}.html",
-        "nav": f"{base}/navs/{category}.html",
-        "portfolio": f"{base}/portfolioassets/{category}.html",
-        "risk": f"{base}/risk-ratios/{category}.html",
         "rank": f"{base}/ranks/{category}.html"
     }
-
-    # Fetch all tables in parallel
     with ThreadPoolExecutor() as executor:
         futures = {
             "returns": executor.submit(fetch_table, urls["returns"]),
-            "nav": executor.submit(fetch_table, urls["nav"]),
-            "portfolio": executor.submit(fetch_table, urls["portfolio"]),
-            "risk": executor.submit(fetch_table, urls["risk"]),
             "rank": executor.submit(fetch_table, urls["rank"], {"Crisil Rank": "Crisil Rating"})
         }
-        
-        # Get results
         df_returns = futures["returns"].result()
-        df_nav = futures["nav"].result()
-        df_portfolio = futures["portfolio"].result()
-        df_risk = futures["risk"].result()
         df_rank = futures["rank"].result()
-
     if df_returns is None:
-        return None
-
-    # Function to drop common columns
+        return pd.DataFrame()
     def drop_common(df, common_cols):
         if df is not None:
-            return df.drop(columns=[c for c in common_cols if c in df.columns], 
-                         errors="ignore")
+            return df.drop(columns=[c for c in common_cols if c in df.columns], errors="ignore")
         return None
-
-    # Process each dataframe
-    nav_df = drop_common(df_nav, ["Category Name", "Crisil Rating", "AuM (Cr)"])
-    portfolio_df = drop_common(df_portfolio, ["Category Name", "Crisil Rating"])
-    risk_df = drop_common(df_risk, ["Category Name", "Crisil Rating"])
-    rank_df = drop_common(df_rank, ["Category Name", "Crisil Rating"])
-
-    # Merge all dataframes
+    rank_df = drop_common(df_rank, ["Category Name", "Crisil Rating"]) if df_rank is not None else None
     combined = df_returns
-    for df in [nav_df, portfolio_df, risk_df, rank_df]:
-        if df is not None and not df.empty and 'Scheme Name' in df.columns and 'Plan' in df.columns:
-            combined = combined.merge(df, on=["Scheme Name", "Plan"], how="left")
-
-    # Filter only Regular + Growth plans
+    if rank_df is not None and not rank_df.empty and 'Scheme Name' in rank_df.columns and 'Plan' in rank_df.columns:
+        combined = combined.merge(rank_df, on=["Scheme Name", "Plan"], how="left")
     if 'Plan' in combined.columns and 'Scheme Name' in combined.columns:
         combined = combined[combined["Plan"] == "Regular"]
         combined = combined[combined["Scheme Name"].str.contains("Growth", case=False, na=False)]
     else:
-        return None
-
-    # Clean numeric columns
-    numeric_columns = {
-        "1W": ("%", "", float),
-        "AuM (Cr)": (",", "", float),
-        "3M": ("%", "", float),
-        "6M": ("%", "", float),
-        "1Y": ("%", "", float),
-        "3Y": ("%", "", float),
-        "5Y": ("%", "", float),
-        "Crisil Rating Num": (r"(\d+)", "", float)
-    }
-
-    for col, (old, new, dtype) in numeric_columns.items():
-        if col in combined.columns:
-            try:
-                if col == "Crisil Rating Num":
-                    combined[col] = combined["Crisil Rating"].str.extract(r"(\d+)").astype(float)
-                else:
-                    combined[col] = combined[col].str.replace(old, new, regex=False).astype(dtype)
-            except:
-                pass
-
-    # Add category info
-    combined["Category"] = category_label
-    return combined
+        return pd.DataFrame()
+    for col in combined.columns:
+        if any(period in col for period in ['1W', '1M', '3M', '6M', '1Y', '2Y', '3Y', '5Y', '10Y', 'YTD', 'Return', 'Change']):
+            combined[col] = pd.to_numeric(
+                combined[col].astype(str).str.replace('%', '', regex=False),
+                errors='coerce'
+            )
+        elif combined[col].dtype == 'object':
+            if combined[col].str.contains(',').any():
+                combined[col] = pd.to_numeric(
+                    combined[col].str.replace(',', ''),
+                    errors='ignore'
+                )
+    if not combined.empty:
+        combined["Category"] = category_label
+        combined = combined.dropna(subset=['Scheme Name'])
+        combined = combined.dropna(axis=1, how='all')
+        def rename_return_col(col):
+            col_clean = col.replace("_x", "").replace("_y", "").upper()
+            mapping = {
+                "1W": "Return 1W",
+                "1M": "Return 1M",
+                "3M": "Return 3M",
+                "6M": "Return 6M",
+                "YTD": "Return YTD",
+                "1Y": "Return 1Y",
+                "2Y": "Return 2Y",
+                "3Y": "Return 3Y",
+                "5Y": "Return 5Y",
+                "10Y": "Return 10Y"
+            }
+            return mapping.get(col_clean, col_clean)
+        combined.columns = [rename_return_col(c) for c in combined.columns]
+        return combined
+    return pd.DataFrame()
 
 def main():
-    st.title("📊 Mutual Fund Dashboard")
-    st.write("Fetching live mutual fund data from Moneycontrol...")
+    if should_refresh():
+        st.experimental_rerun()
 
-    # Category mapping
+    st.title("📊 Mutual Fund Dashboard")
+
+    # PLACE CATEGORY DROP-DOWN ON TOP
     categories = {
+        "All Funds": "all",
+        "Flexi Cap": "flexi-cap-fund",
         "Small Cap": "small-cap-fund",
         "Mid Cap": "mid-cap-fund",
         "Large Cap": "large-cap-fund",
@@ -156,61 +126,35 @@ def main():
         "Sectoral": "sectoral-fund",
         "Index": "index-fund"
     }
+    selected_category = st.selectbox("Select Fund Category:", list(categories.keys()))
 
-    # Sidebar for filters
-    st.sidebar.header("🔍 Filters")
-    
-    # Category selection
-    selected_category = st.sidebar.selectbox(
-        "Select Fund Category:",
-        list(categories.keys())
-    )
-
-    # Scrape data with loading indicator
-    with st.spinner(f"Fetching {selected_category} funds data..."):
-        df = scrape_category(categories[selected_category], selected_category)
+    if categories[selected_category] == "all":
+        with st.spinner("Fetching all categories..."):
+            dfs = []
+            for cat_name, cat_slug in categories.items():
+                if cat_slug != "all":
+                    df_cat = scrape_category(cat_slug, cat_name)
+                    if df_cat is not None and not df_cat.empty:
+                        dfs.append(df_cat)
+            if dfs:
+                df = pd.concat(dfs, ignore_index=True)
+                df = df.dropna(axis=1, how='all')
+            else:
+                df = pd.DataFrame()
+    else:
+        with st.spinner(f"Fetching {selected_category} funds data..."):
+            df = scrape_category(categories[selected_category], selected_category)
+            if not df.empty:
+                df = df.dropna(axis=1, how='all')
 
     if df is not None and not df.empty:
         st.success(f"✅ Showing {selected_category} Funds ({len(df)} schemes)")
-
-        # Additional filters
-        st.sidebar.subheader("Refine Results")
-        
-        # AUM Filter
-        if "AuM (Cr)" in df.columns:
-            min_aum, max_aum = df["AuM (Cr)"].min(), df["AuM (Cr)"].max()
-            aum_range = st.sidebar.slider(
-                "AUM (in Cr)", 
-                min_value=float(min_aum), 
-                max_value=float(max_aum), 
-                value=(float(min_aum), float(max_aum))
-            )
-            df = df[(df["AuM (Cr)"] >= aum_range[0]) & (df["AuM (Cr)"] <= aum_range[1])]
-
-        # CRISIL Rating Filter
-        if "Crisil Rating" in df.columns:
-            crisil_ratings = df["Crisil Rating"].dropna().unique()
-            selected_ratings = st.sidebar.multiselect(
-                "CRISIL Rating",
-                options=sorted(crisil_ratings),
-                default=sorted(crisil_ratings)
-            )
-            df = df[df["Crisil Rating"].isin(selected_ratings)]
-
-        # Display the dataframe
         st.dataframe(
             df,
             use_container_width=True,
             height=600,
-            hide_index=True,
-            column_config={
-                "Scheme Name": st.column_config.TextColumn("Scheme Name", width="large"),
-                "1W": st.column_config.NumberColumn("1W Return (%)", format="%.2f%%"),
-                "AuM (Cr)": st.column_config.NumberColumn("AUM (Cr)", format="₹%.2f")
-            }
+            hide_index=True
         )
-
-        # Download button
         csv = df.to_csv(index=False).encode('utf-8')
         st.download_button(
             label="📥 Download as CSV",
@@ -218,18 +162,6 @@ def main():
             file_name=f"{selected_category.lower().replace(' ', '_')}_funds.csv",
             mime="text/csv"
         )
-
-        # Show some statistics
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Total Funds", len(df))
-        with col2:
-            if "AuM (Cr)" in df.columns:
-                st.metric("Total AUM (Cr)", f"₹{df['AuM (Cr)'].sum():,.2f}")
-        with col3:
-            if "1W" in df.columns:
-                avg_return = df["1W"].mean()
-                st.metric("Avg 1W Return", f"{avg_return:.2f}%")
     else:
         st.error("⚠️ Could not fetch data. Please try again later.")
 
