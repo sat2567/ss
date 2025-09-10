@@ -5,13 +5,24 @@ from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor
 import datetime
 
-# Cached function to fetch html table data
+# --- Auto refresh logic ---
+def should_refresh():
+    """Check if data should refresh (every day after 9 AM)."""
+    now = datetime.datetime.now()
+    today_9am = now.replace(hour=9, minute=0, second=0, microsecond=0)
+    if now >= today_9am:
+        if "last_refresh_date" not in st.session_state or st.session_state["last_refresh_date"] != now.date():
+            st.session_state["last_refresh_date"] = now.date()
+            st.cache_data.clear()  # Clear cache so fresh data loads
+            return True
+    return False
+
 @st.cache_data(ttl=3600)  # Cache for 1 hour
 def fetch_table(url, rename_map=None):
     headers = {
-        'User-Agent': ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                       'AppleWebKit/537.36 (KHTML, like Gecko) '
-                       'Chrome/91.0.4472.124 Safari/537.36')
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                      'AppleWebKit/537.36 (KHTML, like Gecko) '
+                      'Chrome/91.0.4472.124 Safari/537.36'
     }
     try:
         response = requests.get(url, headers=headers, timeout=10)
@@ -103,18 +114,24 @@ def scrape_category(category, category_label):
     return pd.DataFrame()
 
 def main():
+    if should_refresh():
+        # st.experimental_rerun() is removed to prevent errors/flickering
+        st.cache_data.clear()
+
     categories = {
         "All Funds": "all",
         "Flexi Cap": "flexi-cap-fund",
         "Small Cap": "small-cap-fund",
+        "Multi Cap": "multi-cap-fund",
         "Mid Cap": "mid-cap-fund",
         "Large Cap": "large-cap-fund",
         "ELSS": "elss",
-        "Sectoral": "sectoral",
-        "Index": "index"
+        "Sectoral": "sectoral-fund",
+        "Index": "index-fund"
     }
 
-    selected_category = st.selectbox("Select Fund Category:", list(categories.keys()))
+    st.sidebar.header("🔍 Filters")
+    selected_category = st.sidebar.selectbox("Select Fund Category:", list(categories.keys()))
 
     st.title("📊 Mutual Fund Dashboard")
     st.write("Fetching live mutual fund data from Moneycontrol...")
@@ -125,31 +142,4 @@ def main():
             for cat_name, cat_slug in categories.items():
                 if cat_slug != "all":
                     df_cat = scrape_category(cat_slug, cat_name)
-                    if df_cat is not None and not df_cat.empty:
-                        dfs.append(df_cat)
-            if dfs:
-                df = pd.concat(dfs, ignore_index=True)
-                df = df.dropna(axis=1, how='all')
-            else:
-                df = pd.DataFrame()
-    else:
-        with st.spinner(f"Fetching {selected_category} funds data..."):
-            df = scrape_category(categories[selected_category], selected_category)
-            if df is not None and not df.empty:
-                df = df.dropna(axis=1, how='all')
-
-    if df is not None and not df.empty:
-        st.success(f"✅ Showing {selected_category} Funds ({len(df)})")
-        st.dataframe(df, use_container_width=True, height=600, hide_index=True)
-        csv = df.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="📥 Download CSV",
-            data=csv,
-            file_name=f"{selected_category.lower().replace(' ', '_')}_funds.csv",
-            mime="text/csv"
-        )
-    else:
-        st.error("⚠️ Could not fetch data. Please try again later.")
-
-if __name__ == "__main__":
-    main()
+                    if df_cat is not None and not
