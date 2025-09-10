@@ -6,6 +6,8 @@ from concurrent.futures import ThreadPoolExecutor
 import datetime
 import time
 
+# --- Utility functions --- #
+
 def should_refresh():
     now = datetime.datetime.now()
     today_9am = now.replace(hour=9, minute=0, second=0, microsecond=0)
@@ -109,32 +111,45 @@ def scrape_category(category, category_label):
         return combined
     return pd.DataFrame()
 
+# Helper function for safe rerun
+def safe_rerun():
+    if hasattr(st, 'experimental_rerun'):
+        st.experimental_rerun()
+    else:
+        # fallback refresh by meta tag (less elegant)
+        st.write('<meta http-equiv="refresh" content="0">', unsafe_allow_html=True)
+
+# Main app function
 def main():
     if should_refresh():
         st.cache_data.clear()
-        st.experimental_rerun()
+        safe_rerun()
 
     st.title("📊 Mutual Fund Dashboard")
 
+    # Fund Category dropdown
     categories = {
         "All Funds": "all",
-        "Flexi Cap": "flexi-cap-fund",
-        "Small Cap": "small-cap-fund",
-        "Mid Cap": "mid-cap-fund",
-        "Large Cap": "large-cap-fund",
+        "Flexi Cap": "flexi-cap",
+        "Small Cap": "small-cap",
+        "Mid Cap": "mid-cap",
+        "Large Cap": "large-cap",
         "ELSS": "elss",
-        "Sectoral": "sectoral-fund",
-        "Index": "index-fund"
+        "Sectoral": "sectoral",
+        "Index": "index"
     }
     selected_category = st.selectbox("Select Fund Category:", list(categories.keys()))
 
-    # Auto refresh toggle button
-    auto_refresh = st.checkbox("Enable Auto Refresh (every 60 seconds)", value=False)
+    # Auto-refresh toggle
+    auto_refresh = st.checkbox("Enable auto-refresh every 60 seconds", value=False)
 
     if auto_refresh:
-        st.experimental_rerun()  # refresh immediately for the first time
-        time.sleep(60)
-        st.experimental_rerun()  # schedule next refresh
+        # Streamlit doesn't natively support async sleeping, so use st_autorefresh or a hack
+        # Using st_autorefresh is recommended; implement it here:
+        from streamlit_autorefresh import st_autorefresh
+        # Auto-refresh every 60 seconds (60000 ms)
+        count = st_autorefresh(interval=60000, limit=None, key="autorefresh")
+        # This reruns the script every 60 seconds when auto-refresh is on
 
     if categories[selected_category] == "all":
         with st.spinner("Fetching all categories..."):
@@ -152,26 +167,23 @@ def main():
     else:
         with st.spinner(f"Fetching {selected_category} funds data..."):
             df = scrape_category(categories[selected_category], selected_category)
-            if not df.empty:
+            if df is not None and not df.empty:
                 df = df.dropna(axis=1, how='all')
+            else:
+                df = pd.DataFrame()
 
     if df is not None and not df.empty:
-        st.success(f"✅ Showing {selected_category} Funds ({len(df)} schemes)")
-        st.dataframe(
-            df,
-            use_container_width=True,
-            height=600,
-            hide_index=True
-        )
+        st.success(f"✅ Showing {selected_category} Funds ({len(df)})")
+        st.dataframe(df, height=600, width='stretch', use_container_width=False)
         csv = df.to_csv(index=False).encode('utf-8')
         st.download_button(
-            label="📥 Download as CSV",
+            label="📥 Download CSV",
             data=csv,
-            file_name=f"{selected_category.lower().replace(' ', '_')}_funds.csv",
-            mime="text/csv"
+            file_name=f"{categories[selected_category].replace(' ', '_').lower()}_funds.csv",
+            mime='text/csv'
         )
     else:
-        st.error("⚠️ Could not fetch data. Please try again later.")
+        st.error("⚠️ No data available. Please try again later.")
 
 if __name__ == "__main__":
     main()
