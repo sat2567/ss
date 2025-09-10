@@ -4,8 +4,8 @@ import requests
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor
 import datetime
+import time
 
-# --- Auto refresh logic ---
 def should_refresh():
     now = datetime.datetime.now()
     today_9am = now.replace(hour=9, minute=0, second=0, microsecond=0)
@@ -111,11 +111,11 @@ def scrape_category(category, category_label):
 
 def main():
     if should_refresh():
+        st.cache_data.clear()
         st.experimental_rerun()
 
     st.title("📊 Mutual Fund Dashboard")
 
-    # PLACE CATEGORY DROP-DOWN ON TOP
     categories = {
         "All Funds": "all",
         "Flexi Cap": "flexi-cap-fund",
@@ -127,6 +127,14 @@ def main():
         "Index": "index-fund"
     }
     selected_category = st.selectbox("Select Fund Category:", list(categories.keys()))
+
+    # Auto refresh toggle button
+    auto_refresh = st.checkbox("Enable Auto Refresh (every 60 seconds)", value=False)
+
+    if auto_refresh:
+        st.experimental_rerun()  # refresh immediately for the first time
+        time.sleep(60)
+        st.experimental_rerun()  # schedule next refresh
 
     if categories[selected_category] == "all":
         with st.spinner("Fetching all categories..."):
