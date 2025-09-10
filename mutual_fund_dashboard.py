@@ -28,21 +28,11 @@ def main():
     st.markdown("""
     <style>
         .main {
+            max-width: 1200px;
             padding: 2rem;
         }
-        .stDataFrame {
+        .stButton>button {
             width: 100%;
-        }
-        .stDownloadButton button {
-            width: 100%;
-            margin-top: 1rem;
-        }
-        .market-card {
-            border-radius: 10px;
-            padding: 15px;
-            margin-bottom: 15px;
-            background-color: #f8f9fa;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         .positive {
             color: #28a745;
@@ -50,35 +40,163 @@ def main():
         .negative {
             color: #dc3545;
         }
+        .fund-selector {
+            margin-bottom: 2rem;
+        }
+        .fund-card {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .fund-metric {
+            font-size: 1.2rem;
+            font-weight: 500;
+        }
+        .fund-metric-label {
+            font-size: 0.9rem;
+            color: #6c757d;
+        }
     </style>
     """, unsafe_allow_html=True)
     
-    # Display market data section
-    st.title("💰 Market Dashboard")
-    st.markdown("Track and analyze market data including mutual funds, gold, and US indices")
+    st.title("📊 Mutual Fund Analyzer")
+    st.markdown("Select and analyze mutual funds across different categories")
     
-    # Display market data
-    display_market_data()
+    # Add a loading spinner while fetching data
+    with st.spinner("Loading fund data..."):
+        # Category mapping
+        categories = {
+            "Flexi Cap": "flexi-cap-fund",
+            "Small Cap": "small-cap-fund",
+            "Mid Cap": "mid-cap-fund",
+        }
+        
+        # Fetch data for all categories first
+        all_funds = []
+        for category_label, category in categories.items():
+            df = scrape_category(category, category_label)
+            if df is not None and not df.empty:
+                all_funds.append(df)
+        
+        if not all_funds:
+            st.error("⚠️ Could not fetch any fund data. Please check your internet connection and try again.")
+            return
+        
+        # Combine all funds into a single DataFrame
+        combined_df = pd.concat(all_funds, ignore_index=True)
     
-    # Add a separator
-    st.markdown("---")
+    # Create two columns for layout
+    col1, col2 = st.columns([1, 3])
     
-    # Original mutual fund dashboard title
-    st.title("📊 Mutual Fund Performance")
-
-    # Category mapping
-    categories = {
-        "Flexi Cap": "flexi-cap-fund",
-        "Small Cap": "small-cap-fund",
-        "Mid Cap": "mid-cap-fund",
-    }
-
-    # Fetch and display data for each category
-    for category_label, category in categories.items():
-        st.write(f"### {category_label} Funds")
-        df = scrape_category(category, category_label)
-        if df is not None:
-            st.write(df)
+    with col1:
+        st.markdown("### 🔍 Filter Funds")
+        
+        # Category filter
+        selected_categories = st.multiselect(
+            "Select Categories:",
+            options=sorted(combined_df['Category'].unique()),
+            default=sorted(combined_df['Category'].unique()),
+            key="category_filter"
+        )
+        
+        # Search box
+        search_term = st.text_input("Search by fund name:", "", key="fund_search")
+        
+        # Sort by dropdown
+        sort_by = st.selectbox(
+            "Sort by:",
+            options=["Scheme Name", "1M", "3M", "6M", "1Y", "3Y", "5Y"],
+            index=0,
+            key="sort_by"
+        )
+        
+        # Sort order
+        sort_ascending = st.checkbox("Ascending order", value=False, key="sort_order")
+        
+        # Filter and sort funds
+        filtered_funds = combined_df[
+            combined_df['Category'].isin(selected_categories)
+        ]
+        
+        if search_term:
+            filtered_funds = filtered_funds[
+                filtered_funds['Scheme Name'].str.contains(search_term, case=False, na=False)
+            ]
+        
+        # Sort the funds
+        if sort_by in filtered_funds.columns:
+            filtered_funds = filtered_funds.sort_values(
+                by=sort_by, 
+                ascending=sort_ascending,
+                na_position='last'
+            )
+        
+        # Fund selector
+        selected_fund = st.selectbox(
+            "Select a fund to analyze:",
+            options=filtered_funds['Scheme Name'].tolist(),
+            index=0 if not filtered_funds.empty else None,
+            key="fund_selector"
+        )
+    
+    with col2:
+        if selected_fund and not filtered_funds.empty:
+            fund_data = filtered_funds[filtered_funds['Scheme Name'] == selected_fund].iloc[0]
+            
+            # Display fund header
+            st.markdown(f"## {fund_data['Scheme Name']}")
+            st.markdown(f"**Category:** {fund_data['Category']} | **Plan:** {fund_data['Plan']}")
+            
+            # Display returns in a card
+            st.markdown("### 📈 Performance Metrics")
+            
+            # Get available return periods
+            return_periods = [col for col in ['1W', '1M', '3M', '6M', '1Y', '3Y', '5Y'] 
+                            if col in fund_data and pd.notna(fund_data[col])]
+            
+            # Create columns for returns
+            cols = st.columns(len(return_periods) if return_periods else 1)
+            
+            for idx, period in enumerate(return_periods):
+                with cols[idx]:
+                    value = fund_data[period]
+                    st.markdown(f"""
+                    <div class="fund-card">
+                        <div class="fund-metric-label">{period} Return</div>
+                        <div class="fund-metric" style="color: {'#28a745' if value >= 0 else '#dc3545'}">
+                            {value:+.2f}%
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            # Show similar funds in the same category
+            st.markdown("### 🔄 Similar Funds in Same Category")
+            similar_funds = filtered_funds[
+                (filtered_funds['Category'] == fund_data['Category']) &
+                (filtered_funds['Scheme Name'] != fund_data['Scheme Name'])
+            ]
+            
+            if not similar_funds.empty:
+                # Show top 5 similar funds by 1Y return (if available)
+                if '1Y' in similar_funds.columns:
+                    similar_funds = similar_funds.sort_values('1Y', ascending=False).head(5)
+                
+                # Format the table
+                display_cols = ['Scheme Name']
+                for period in ['1M', '3M', '6M', '1Y', '3Y', '5Y']:
+                    if period in similar_funds.columns:
+                        display_cols.append(period)
+                
+                st.dataframe(
+                    similar_funds[display_cols].set_index('Scheme Name'),
+                    use_container_width=True
+                )
+            else:
+                st.info("No similar funds found in the same category.")
+        else:
+            st.info("👈 Select a fund from the filters to view details.")
 
 # Cache the data to prevent re-fetching on every interaction
 @st.cache_data(ttl=3600)  # Cache for 1 hour
@@ -183,31 +301,22 @@ def scrape_category(category, category_label):
     base = "https://www.moneycontrol.com/mutual-funds/performance-tracker"
     urls = {
         "returns": f"{base}/returns/{category}.html",
-        "nav": f"{base}/navs/{category}.html",
-        "portfolio": f"{base}/portfolioassets/{category}.html",
-        "risk": f"{base}/risk-ratios/{category}.html",
         "rank": f"{base}/ranks/{category}.html"
     }
 
-    # Fetch all tables in parallel
+    # Fetch only essential data
     with ThreadPoolExecutor() as executor:
         futures = {
             "returns": executor.submit(fetch_table, urls["returns"]),
-            "nav": executor.submit(fetch_table, urls["nav"]),
-            "portfolio": executor.submit(fetch_table, urls["portfolio"]),
-            "risk": executor.submit(fetch_table, urls["risk"]),
             "rank": executor.submit(fetch_table, urls["rank"], {"Crisil Rank": "Crisil Rating"})
         }
         
         # Get results
         df_returns = futures["returns"].result()
-        df_nav = futures["nav"].result()
-        df_portfolio = futures["portfolio"].result()
-        df_risk = futures["risk"].result()
         df_rank = futures["rank"].result()
 
     if df_returns is None:
-        return None
+        return pd.DataFrame()  # Return empty DataFrame instead of None
 
     # Function to drop common columns
     def drop_common(df, common_cols):
@@ -216,17 +325,15 @@ def scrape_category(category, category_label):
                          errors="ignore")
         return None
 
-    # Process each dataframe
-    nav_df = drop_common(df_nav, ["Category Name", "Crisil Rating", "AuM (Cr)"])
-    portfolio_df = drop_common(df_portfolio, ["Category Name", "Crisil Rating"])
-    risk_df = drop_common(df_risk, ["Category Name", "Crisil Rating"])
-    rank_df = drop_common(df_rank, ["Category Name", "Crisil Rating"])
+    # Process rank dataframe
+    rank_df = drop_common(df_rank, ["Category Name", "Crisil Rating"]) if df_rank is not None else None
 
-    # Merge all dataframes
+    # Start with returns dataframe
     combined = df_returns
-    for df in [nav_df, portfolio_df, risk_df, rank_df]:
-        if df is not None and not df.empty and 'Scheme Name' in df.columns and 'Plan' in df.columns:
-            combined = combined.merge(df, on=["Scheme Name", "Plan"], how="left")
+    
+    # Merge with rank data if available
+    if rank_df is not None and not rank_df.empty and 'Scheme Name' in rank_df.columns and 'Plan' in rank_df.columns:
+        combined = combined.merge(rank_df, on=["Scheme Name", "Plan"], how="left")
 
     # Filter only Regular + Growth plans
     if 'Plan' in combined.columns and 'Scheme Name' in combined.columns:
@@ -235,40 +342,30 @@ def scrape_category(category, category_label):
     else:
         return None
 
-    # Clean numeric columns
-    numeric_columns = {
-        "1W": ("%", "", float),
-        "AuM (Cr)": (",", "", float),
-        "3M": ("%", "", float),
-        "6M": ("%", "", float),
-        "1Y": ("%", "", float),
-        "3Y": ("%", "", float),
-        "5Y": ("%", "", float),
-        "Crisil Rating Num": (r"(\d+)", "", float)
-    }
+    # Clean and convert return columns to numeric
+    for period in ['1W', '1M', '3M', '6M', '1Y', '3Y', '5Y']:
+        if period in combined.columns:
+            # Remove percentage sign and convert to float
+            combined[period] = pd.to_numeric(
+                combined[period].astype(str).str.rstrip('%'), 
+                errors='coerce'
+            )
 
-    for col, (old, new, dtype) in numeric_columns.items():
-        if col in combined.columns:
-            try:
-                if col == "Crisil Rating Num":
-                    combined[col] = combined["Crisil Rating"].str.extract(r"(\d+)").astype(float)
-                else:
-                    combined[col] = combined[col].str.replace(old, new, regex=False).astype(dtype)
-            except:
-                pass
-
-    # Add category info
-    combined["Category"] = category_label
+    # Add category info and clean up
+    if not combined.empty:
+        combined["Category"] = category_label
+        
+        # Keep only essential columns
+        essential_columns = ['Scheme Name', 'Plan', 'Category']
+        return_columns = [col for col in ['1W', '1M', '3M', '6M', '1Y', '3Y', '5Y'] if col in combined.columns]
+        combined = combined[essential_columns + return_columns]
+        
+        # Drop any rows with missing scheme names
+        combined = combined.dropna(subset=['Scheme Name'])
+        
+        return combined
     
-    # Drop columns that are completely null
-    combined = combined.dropna(axis=1, how='all')
-    
-    # Drop columns that have only one unique value (excluding NA)
-    for col in combined.columns:
-        if combined[col].nunique(dropna=True) <= 1:
-            combined = combined.drop(columns=[col])
-    
-    return combined
+    return pd.DataFrame()  # Return empty DataFrame if no data
 
 def main():
     st.title("📊 Mutual Fund Dashboard")
