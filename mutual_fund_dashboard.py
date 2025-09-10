@@ -3,23 +3,10 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor
-import datetime
+from datetime import datetime
+import time
 
-# --- Auto refresh logic ---
-def should_refresh():
-    """Check if data should refresh (every day after 9 AM)."""
-    now = datetime.datetime.now()
-    today_9am = now.replace(hour=9, minute=0, second=0, microsecond=0)
-
-    # If it's past 9 AM and last refresh wasn't today → refresh
-    if now >= today_9am:
-        if "last_refresh_date" not in st.session_state or st.session_state["last_refresh_date"] != now.date():
-            st.session_state["last_refresh_date"] = now.date()
-            st.cache_data.clear()  # ✅ Clear cache so fresh data loads
-            return True
-    return False
-
-# --- Data fetch function ---
+# Cache the data to prevent re-fetching on every interaction
 @st.cache_data(ttl=3600)  # Cache for 1 hour
 def fetch_table(url, rename_map=None):
     headers = {
@@ -53,7 +40,7 @@ def fetch_table(url, rename_map=None):
         st.error(f"Error fetching data from {url}: {str(e)}")
         return None
 
-# --- Category scraper ---
+
 def scrape_category(category, category_label):
     base = "https://www.moneycontrol.com/mutual-funds/performance-tracker"
     urls = {
@@ -61,7 +48,7 @@ def scrape_category(category, category_label):
         "rank": f"{base}/ranks/{category}.html"
     }
 
-    # Fetch data concurrently
+    # Fetch only essential data
     with ThreadPoolExecutor() as executor:
         futures = {
             "returns": executor.submit(fetch_table, urls["returns"]),
@@ -74,10 +61,17 @@ def scrape_category(category, category_label):
     if df_returns is None:
         return pd.DataFrame()
 
+    def drop_common(df, common_cols):
+        if df is not None:
+            return df.drop(columns=[c for c in common_cols if c in df.columns], errors="ignore")
+        return None
+
+    rank_df = drop_common(df_rank, ["Category Name", "Crisil Rating"]) if df_rank is not None else None
+
     combined = df_returns
 
-    if df_rank is not None and not df_rank.empty and 'Scheme Name' in df_rank.columns and 'Plan' in df_rank.columns:
-        combined = combined.merge(df_rank, on=["Scheme Name", "Plan"], how="left")
+    if rank_df is not None and not rank_df.empty and 'Scheme Name' in rank_df.columns and 'Plan' in rank_df.columns:
+        combined = combined.merge(rank_df, on=["Scheme Name", "Plan"], how="left")
 
     if 'Plan' in combined.columns and 'Scheme Name' in combined.columns:
         combined = combined[combined["Plan"] == "Regular"]
@@ -85,7 +79,7 @@ def scrape_category(category, category_label):
     else:
         return pd.DataFrame()
 
-    # Convert number-like columns
+    # Clean numbers
     for col in combined.columns:
         if any(period in col for period in ['1W', '1M', '3M', '6M', '1Y', '2Y', '3Y', '5Y', '10Y', 'Ytd', 'Return', 'Change']):
             combined[col] = pd.to_numeric(
@@ -102,16 +96,16 @@ def scrape_category(category, category_label):
     if not combined.empty:
         combined["Category"] = category_label
         combined = combined.dropna(subset=['Scheme Name'])
+
+        # ✅ Drop columns with only None values
+        combined = combined.dropna(axis=1, how='all')
+
         return combined
 
     return pd.DataFrame()
 
-# --- Main App ---
-def main():
-    # ✅ Auto refresh check
-    if should_refresh():
-        st.experimental_rerun()
 
+def main():
     st.title("📊 Mutual Fund Dashboard")
     st.write("Fetching live mutual fund data from Moneycontrol...")
 
@@ -140,11 +134,18 @@ def main():
 
             if dfs:
                 df = pd.concat(dfs, ignore_index=True)
+
+                # ✅ Drop columns with only None values
+                df = df.dropna(axis=1, how='all')
             else:
                 df = pd.DataFrame()
     else:
         with st.spinner(f"Fetching {selected_category} funds data..."):
             df = scrape_category(categories[selected_category], selected_category)
+
+            if not df.empty:
+                # ✅ Drop columns with only None values
+                df = df.dropna(axis=1, how='all')
 
     if df is not None and not df.empty:
         st.success(f"✅ Showing {selected_category} Funds ({len(df)} schemes)")
@@ -156,7 +157,6 @@ def main():
             hide_index=True
         )
 
-        # Download CSV
         csv = df.to_csv(index=False).encode('utf-8')
         st.download_button(
             label="📥 Download as CSV",
@@ -166,6 +166,7 @@ def main():
         )
     else:
         st.error("⚠️ Could not fetch data. Please try again later.")
+
 
 if __name__ == "__main__":
     main()
