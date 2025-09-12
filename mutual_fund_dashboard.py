@@ -138,7 +138,7 @@ def main():
     selected_category = st.sidebar.selectbox("Select Fund Category:", list(categories.keys()))
 
     st.title("📊 Mutual Fund Dashboard")
-    st.write("Fetching live mutual fund data from Moneycontrol...")
+    
 
     if categories[selected_category] == "all":
         with st.spinner("Fetching all categories..."):
