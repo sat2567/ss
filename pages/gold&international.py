@@ -21,7 +21,7 @@ for name, symbol in indices.items():
     if not df.empty:
         df = df[["Close"]].rename(columns={"Close": name})
         data.append(df)
-        st.success(f"✅ Downloaded {name}")
+        
     else:
         st.warning(f"❌ No data for {name}")
 
