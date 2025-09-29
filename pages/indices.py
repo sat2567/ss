@@ -3,7 +3,7 @@ import pandas as pd
 import streamlit as st
 import plotly.graph_objs as go
 
-# CSV files URLs
+# CSV data URLs
 csv_files = {
     "NIFTY BANK": "https://raw.githubusercontent.com/sat2567/ss/my-new-branch/NIFTY%20BANK-29-09-2024-to-29-09-2025.csv",
     "NIFTY 50": "https://raw.githubusercontent.com/sat2567/ss/my-new-branch/NIFTY%2050-29-09-2024-to-29-09-2025.csv",
@@ -26,10 +26,8 @@ def normalize_csv(df):
     date_col = next(col for col in ['DATE', 'Date', 'date'] if col in df.columns)
     df[date_col] = pd.to_datetime(df[date_col], dayfirst=True)
     df.set_index(date_col, inplace=True)
-    # Rename shares traded to volume if needed
     if 'VOLUME' not in df.columns and 'SHARES TRADED' in df.columns:
         df.rename(columns={'SHARES TRADED': 'VOLUME'}, inplace=True)
-    # Rename close price column to 'CLOSE' if needed
     if 'CLOSE' not in df.columns:
         close_candidates = [c for c in df.columns if 'CLOSE' in c]
         if close_candidates:
@@ -42,6 +40,10 @@ def normalize_yf(df):
     df.index = pd.to_datetime(df.index)
     if 'CLOSE' not in df.columns:
         df['CLOSE'] = pd.NA
+    # Defensive check to ensure proper type
+    col = df['CLOSE']
+    if not hasattr(col, 'dtype'):
+        df['CLOSE'] = pd.Series(col)
     df['CLOSE'] = pd.to_numeric(df['CLOSE'], errors='coerce')
     return df[['CLOSE']].sort_index()
 
@@ -60,7 +62,6 @@ all_data = {**csv_data, **yf_data}
 
 st.title('Indices Closing Prices & Moving Averages')
 
-# Determine overall date range
 all_dates = pd.concat([df.index.to_series() for df in all_data.values()])
 min_date, max_date = all_dates.min(), all_dates.max()
 
@@ -85,7 +86,7 @@ for name in indices:
     # Plot Close price
     fig.add_trace(go.Scatter(x=df.index, y=df['CLOSE'], mode='lines', name='Close', line=dict(width=2)))
 
-    # Plot moving averages of Close
+    # Plot moving averages
     for window in ma_windows:
         ma_label = f'MA{window}'
         df[ma_label] = df['CLOSE'].rolling(window=window).mean()
