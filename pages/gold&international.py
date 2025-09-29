@@ -1,7 +1,7 @@
 import yfinance as yf
 import pandas as pd
 import streamlit as st
-import matplotlib.pyplot as plt
+import plotly.graph_objs as go
 
 indices = {
     "Gold (COMEX Futures)": "GC=F",
@@ -12,39 +12,37 @@ indices = {
     "Shenzhen Component": "399001.SZ"
 }
 
-data = []
-
-st.title("Weekly Close Prices of Indices (5 years)")
-
+# Download data
+data = {}
 for name, symbol in indices.items():
     df = yf.download(symbol, period="5y", interval="1wk", auto_adjust=True)
     if not df.empty:
-        df = df[["Close"]].rename(columns={"Close": name})
-        data.append(df)
+        df = df[["Close"]].rename(columns={"Close": "Close"})
+        df.index = pd.to_datetime(df.index)
+        data[name] = df
         st.success(f"✅ Downloaded {name}")
     else:
         st.warning(f"❌ No data for {name}")
 
-if data:
-    df_all = pd.concat(data, axis=1)
-    csv_data = df_all.to_csv().encode("utf-8")
-    st.download_button(
-        label="📥 Download merged data as CSV",
-        data=csv_data,
-        file_name="weekly_indices.csv",
-        mime="text/csv",
-    )
-    
-    fig, ax = plt.subplots(figsize=(14, 8))
-    for col in df_all.columns:
-        ax.plot(df_all.index, df_all[col], label=col)
-    ax.set_title("Weekly Close Prices of Indices (5 years)")
-    ax.set_xlabel("Date")
-    ax.set_ylabel("Price")
-    ax.legend()
-    ax.grid(True)
+# Select indices to plot
+selected_indices = st.multiselect("Choose indices to plot", options=list(data.keys()), default=list(data.keys()))
 
-    st.pyplot(fig)
-else:
-    st.error("⚠️ No data downloaded. Please check tickers.")
+# Date selection sliders (global min-max over all data)
+all_dates = pd.concat([df.index.to_series() for df in data.values()])
+min_date = all_dates.min()
+max_date = all_dates.max()
+start_date, end_date = st.date_input("Select date range", value=[min_date, max_date], min_value=min_date, max_value=max_date)
 
+# Moving average windows to select
+ma_windows = st.multiselect("Select Moving Average Windows (days)", options=[5, 10, 20, 50, 100, 200], default=[50])
+
+for name in selected_indices:
+    df = data[name]
+    df_filtered = df.loc[start_date:end_date]
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered["Close"], mode="lines", name=f"{name} Close"))
+
+    for window in ma_windows:
+        col_name = f"MA{window}"
+        df_filtered[col_name] = df_filtered
