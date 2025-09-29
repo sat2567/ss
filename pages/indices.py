@@ -26,63 +26,70 @@ def normalize_csv(df):
     date_col = next(col for col in ['DATE', 'Date', 'date'] if col in df.columns)
     df[date_col] = pd.to_datetime(df[date_col], dayfirst=True)
     df.set_index(date_col, inplace=True)
+    # Rename shares traded to volume if needed
     if 'VOLUME' not in df.columns and 'SHARES TRADED' in df.columns:
         df.rename(columns={'SHARES TRADED': 'VOLUME'}, inplace=True)
+    # Rename close price column to 'CLOSE' if needed
     if 'CLOSE' not in df.columns:
         close_candidates = [c for c in df.columns if 'CLOSE' in c]
         if close_candidates:
             df.rename(columns={close_candidates[0]: 'CLOSE'}, inplace=True)
-    for col in ['OPEN', 'HIGH', 'LOW', 'CLOSE', 'VOLUME']:
-        if col not in df.columns:
-            df[col] = pd.NA
-        df[col] = pd.to_numeric(df[col], errors='coerce')
-    return df[['OPEN', 'HIGH', 'LOW', 'CLOSE', 'VOLUME']].sort_index()
+    df['CLOSE'] = pd.to_numeric(df['CLOSE'], errors='coerce')
+    return df[['CLOSE']].sort_index()
 
 def normalize_yf(df):
     df.rename(columns=str.upper, inplace=True)
     df.index = pd.to_datetime(df.index)
-    for col in ['OPEN', 'HIGH', 'LOW', 'CLOSE', 'VOLUME']:
-        if col not in df.columns:
-            df[col] = pd.NA
-    return df[['OPEN', 'HIGH', 'LOW', 'CLOSE', 'VOLUME']].sort_index()
+    if 'CLOSE' not in df.columns:
+        df['CLOSE'] = pd.NA
+    df['CLOSE'] = pd.to_numeric(df['CLOSE'], errors='coerce')
+    return df[['CLOSE']].sort_index()
 
 # Load CSV data
-csv_data = {}
-for name, url in csv_files.items():
-    df = pd.read_csv(url)
-    csv_data[name] = normalize_csv(df)
+csv_data = {name: normalize_csv(pd.read_csv(url)) for name, url in csv_files.items()}
 
-# Download yfinance data
+# Download yfinance 1-year weekly data
 yf_data = {}
 for name, ticker in yf_indices.items():
-    df = yf.download(ticker, period='5y', interval='1wk', auto_adjust=True)
+    df = yf.download(ticker, period='1y', interval='1wk', auto_adjust=True)
     if not df.empty:
         yf_data[name] = normalize_yf(df)
 
+# Combine all data
 all_data = {**csv_data, **yf_data}
 
-st.title('Combined Indices OHLC & MAs')
+st.title('Indices Closing Prices & Moving Averages')
 
+# Determine overall date range
 all_dates = pd.concat([df.index.to_series() for df in all_data.values()])
 min_date, max_date = all_dates.min(), all_dates.max()
 
-start_date, end_date = st.date_input('Select Date Range', value=[min_date, max_date], min_value=min_date, max_value=max_date, key='date_range')
+start_date, end_date = st.date_input(
+    'Select Date Range',
+    value=[min_date, max_date],
+    min_value=min_date,
+    max_value=max_date,
+    key='date_range'
+)
 
-filtered = {name: df.loc[start_date:end_date] for name, df in all_data.items()}
+filtered_data = {name: df.loc[start_date:end_date] for name, df in all_data.items()}
 
-indices = st.multiselect('Select Indices', options=list(filtered.keys()), default=list(filtered.keys()))
-
-ma_windows = st.multiselect('Moving Average Windows (days)', options=[10, 20, 50, 100, 200], default=[50, 200])
+indices = st.multiselect('Select Indices to Plot', options=list(filtered_data.keys()), default=list(filtered_data.keys()))
+ma_windows = st.multiselect('Select Moving Average Windows (days)', options=[10, 20, 50, 100, 200], default=[50, 200])
 
 for name in indices:
-    df = filtered[name].copy()
+    df = filtered_data[name].copy()
     st.subheader(name)
     fig = go.Figure()
-    for col in ['OPEN', 'HIGH', 'LOW', 'CLOSE']:
-        fig.add_trace(go.Scatter(x=df.index, y=df[col], mode='lines', name=col))
+
+    # Plot Close price
+    fig.add_trace(go.Scatter(x=df.index, y=df['CLOSE'], mode='lines', name='Close', line=dict(width=2)))
+
+    # Plot moving averages of Close
     for window in ma_windows:
         ma_label = f'MA{window}'
         df[ma_label] = df['CLOSE'].rolling(window=window).mean()
         fig.add_trace(go.Scatter(x=df.index, y=df[ma_label], mode='lines', name=f'{window}-Day MA', line=dict(dash='dash')))
+
     fig.update_layout(xaxis_title='Date', yaxis_title='Price', hovermode='x unified', height=500)
     st.plotly_chart(fig, use_container_width=True)
