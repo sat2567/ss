@@ -12,7 +12,6 @@ indices = {
     "Shenzhen Component": "399001.SZ"
 }
 
-# Download data
 data = {}
 for name, symbol in indices.items():
     df = yf.download(symbol, period="5y", interval="1wk", auto_adjust=True)
@@ -24,25 +23,27 @@ for name, symbol in indices.items():
     else:
         st.warning(f"❌ No data for {name}")
 
-# Select indices to plot
 selected_indices = st.multiselect("Choose indices to plot", options=list(data.keys()), default=list(data.keys()))
-
-# Date selection sliders (global min-max over all data)
 all_dates = pd.concat([df.index.to_series() for df in data.values()])
-min_date = all_dates.min()
-max_date = all_dates.max()
-start_date, end_date = st.date_input("Select date range", value=[min_date, max_date], min_value=min_date, max_value=max_date)
-
-# Moving average windows to select
+start_date, end_date = st.date_input("Select date range", value=[all_dates.min(), all_dates.max()], min_value=all_dates.min(), max_value=all_dates.max())
 ma_windows = st.multiselect("Select Moving Average Windows (days)", options=[5, 10, 20, 50, 100, 200], default=[50])
 
 for name in selected_indices:
     df = data[name]
-    df_filtered = df.loc[start_date:end_date]
+    df_filtered = df.loc[start_date:end_date].copy()
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered["Close"], mode="lines", name=f"{name} Close"))
 
     for window in ma_windows:
         col_name = f"MA{window}"
-        df_filtered[col_name] = df_filtered
+        df_filtered[col_name] = df_filtered["Close"].rolling(window=window).mean()
+        fig.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[col_name], mode="lines", name=f"{name} {window}-Day MA", line=dict(dash='dash')))
+
+    fig.update_layout(title=f"{name} Closing Price with Moving Averages",
+                      xaxis_title="Date",
+                      yaxis_title="Price",
+                      hovermode="x unified",
+                      height=400)
+
+    st.plotly_chart(fig, use_container_width=True)
