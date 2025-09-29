@@ -18,8 +18,6 @@ for name, url in files.items():
     date_col = next(c for c in ['DATE', 'Date', 'date'] if c in df.columns)
     df[date_col] = pd.to_datetime(df[date_col])
     df.set_index(date_col, inplace=True)
-    df['MA50'] = df['CLOSE'].rolling(window=50).mean()
-    df['MA200'] = df['CLOSE'].rolling(window=200).mean()
     all_data[name] = df
 
 st.title("Indices Close Price & Moving Averages Comparison")
@@ -31,6 +29,13 @@ start_date, end_date = st.date_input("Select Time Frame", value=[min_date, max_d
 
 filtered_data = {name: df.loc[start_date:end_date] for name, df in all_data.items()}
 
+# Allow user to select multiple moving average windows
+ma_days = st.multiselect(
+    "Select Moving Average Window Sizes (days)",
+    options=[10, 20, 50, 100, 200],
+    default=[50, 200]
+)
+
 selected_indices = st.multiselect("Select Indices to Compare", options=list(filtered_data.keys()), default=list(filtered_data.keys()))
 
 fig = go.Figure()
@@ -38,8 +43,16 @@ fig = go.Figure()
 for name in selected_indices:
     df = filtered_data[name]
     fig.add_trace(go.Scatter(x=df.index, y=df['CLOSE'], mode='lines', name=f"{name} Close"))
-    fig.add_trace(go.Scatter(x=df.index, y=df['MA50'], mode='lines', name=f"{name} 50-day MA", line=dict(dash='dash')))
-    fig.add_trace(go.Scatter(x=df.index, y=df['MA200'], mode='lines', name=f"{name} 200-day MA", line=dict(dash='dot')))
+    for window in ma_days:
+        ma_label = f"MA{window}"
+        df[ma_label] = df['CLOSE'].rolling(window=window).mean()
+        fig.add_trace(go.Scatter(x=df.index, y=df[ma_label], mode='lines',
+                                 name=f"{name} {window}-day MA",
+                                 line=dict(dash='dash' if window != 200 else 'dot')))
 
-fig.update_layout(title="Indices Closing Prices & Moving Averages", xaxis_title="Date", yaxis_title="Price", hovermode='x unified')
+fig.update_layout(title="Indices Closing Prices & Moving Averages",
+                  xaxis_title="Date",
+                  yaxis_title="Price",
+                  hovermode="x unified")
+
 st.plotly_chart(fig, use_container_width=True)
