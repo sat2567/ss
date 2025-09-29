@@ -5,7 +5,8 @@ import matplotlib.pyplot as plt
 files = {
     "NIFTY BANK": "NIFTY BANK-29-09-2024-to-29-09-2025.csv",
     "NIFTY 50": "NIFTY 50-29-09-2024-to-29-09-2025.csv",
-    "NIFTY MIDCAP 100": "NIFTY MIDCAP 100-29-09-2024-to-29-09-2025.csv"
+    "NIFTY MIDCAP 100": "NIFTY MIDCAP 100-29-09-2024-to-29-09-2025.csv",
+    "NIFTY MIDCAP 100": "NIFTY SMALLCAP 100-29-09-2024-to-29-09-2025"
 }
 
 for name, filename in files.items():
