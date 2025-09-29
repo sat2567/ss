@@ -1,7 +1,11 @@
+import os
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# File names (update paths as required)
+# Folder path where the CSV files are located (one folder up from pages/)
+data_folder = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+
+# Mapping of friendly names to CSV filenames
 files = {
     "NIFTY BANK": "NIFTY BANK-29-09-2024-to-29-09-2025.csv",
     "NIFTY 50": "NIFTY 50-29-09-2024-to-29-09-2025.csv",
@@ -10,27 +14,31 @@ files = {
 }
 
 for name, filename in files.items():
-    # Load data
-    df = pd.read_csv(filename, parse_dates=True)
-    # If 'Date' is a column, set as index.
-    if 'Date' in df.columns:
-        df['Date'] = pd.to_datetime(df['Date'])
-        df.set_index('Date', inplace=True)
-    # Ensure we have a 'Close' column
-    price_col = 'Close' if 'Close' in df.columns else df.columns[-1]
+    # Construct full path for each file
+    file_path = os.path.join(data_folder, filename)
     
-    # Calculate moving averages
-    df['MA50'] = df[price_col].rolling(window=50).mean()
-    df['MA200'] = df[price_col].rolling(window=200).mean()
+    if not os.path.isfile(file_path):
+        print(f"Warning: File not found: {file_path}")
+        continue
 
-    # Plot
+    # Load data with parse_dates for any datetime column
+    df = pd.read_csv(file_path, parse_dates=['DATE'])
+
+    # Set 'DATE' column as the index
+    df.set_index('DATE', inplace=True)
+
+    # Calculate moving averages
+    df['MA50'] = df['CLOSE'].rolling(window=50).mean()
+    df['MA200'] = df['CLOSE'].rolling(window=200).mean()
+
+    # Plot closing price and moving averages
     plt.figure(figsize=(12, 6))
-    plt.plot(df.index, df[price_col], label=name, color='blue')
+    plt.plot(df.index, df['CLOSE'], label=f'{name} Close Price', color='blue')
     plt.plot(df.index, df['MA50'], label='50-day MA', color='orange', linewidth=2)
     plt.plot(df.index, df['MA200'], label='200-day MA', color='red', linewidth=2)
-    plt.title(f"{name} Closing Price & Moving Averages")
+    plt.title(f'{name}: Close Price with 50 & 200-day Moving Averages')
     plt.xlabel('Date')
-    plt.ylabel('Closing Price')
+    plt.ylabel('Price')
     plt.legend()
     plt.grid(True, linestyle='--', alpha=0.6)
     plt.show()
