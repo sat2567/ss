@@ -11,7 +11,7 @@ csv_files = {
     "NIFTY SMALLCAP 100": "https://raw.githubusercontent.com/sat2567/ss/my-new-branch/NIFTY%20SMALLCAP%20100-29-09-2024-to-29-09-2025.csv"
 }
 
-# yfinance tickers for global indices
+# yfinance symbols
 yf_indices = {
     "Gold (COMEX Futures)": "GC=F",
     "S&P 500": "^GSPC",
@@ -40,24 +40,20 @@ def normalize_yf(df):
     df.index = pd.to_datetime(df.index)
     if 'CLOSE' not in df.columns:
         df['CLOSE'] = pd.NA
-    # Defensive check to ensure proper type
     col = df['CLOSE']
-    if not hasattr(col, 'dtype'):
-        df['CLOSE'] = pd.Series(col)
+    if hasattr(col, 'ndim') and col.ndim > 1:
+        df['CLOSE'] = col.iloc[:, 0]
     df['CLOSE'] = pd.to_numeric(df['CLOSE'], errors='coerce')
     return df[['CLOSE']].sort_index()
 
-# Load CSV data
 csv_data = {name: normalize_csv(pd.read_csv(url)) for name, url in csv_files.items()}
 
-# Download yfinance 1-year weekly data
 yf_data = {}
 for name, ticker in yf_indices.items():
     df = yf.download(ticker, period='1y', interval='1wk', auto_adjust=True)
     if not df.empty:
         yf_data[name] = normalize_yf(df)
 
-# Combine all data
 all_data = {**csv_data, **yf_data}
 
 st.title('Indices Closing Prices & Moving Averages')
@@ -75,18 +71,15 @@ start_date, end_date = st.date_input(
 
 filtered_data = {name: df.loc[start_date:end_date] for name, df in all_data.items()}
 
-indices = st.multiselect('Select Indices to Plot', options=list(filtered_data.keys()), default=list(filtered_data.keys()))
-ma_windows = st.multiselect('Select Moving Average Windows (days)', options=[10, 20, 50, 100, 200], default=[50, 200])
+indices = st.multiselect('Select Indices', options=list(filtered_data.keys()), default=list(filtered_data.keys()))
+ma_windows = st.multiselect('Moving Average Windows (days)', options=[10, 20, 50, 100, 200], default=[50, 200])
 
 for name in indices:
     df = filtered_data[name].copy()
     st.subheader(name)
     fig = go.Figure()
-
-    # Plot Close price
     fig.add_trace(go.Scatter(x=df.index, y=df['CLOSE'], mode='lines', name='Close', line=dict(width=2)))
 
-    # Plot moving averages
     for window in ma_windows:
         ma_label = f'MA{window}'
         df[ma_label] = df['CLOSE'].rolling(window=window).mean()
