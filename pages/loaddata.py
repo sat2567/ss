@@ -1,8 +1,8 @@
 import pandas as pd
-import matplotlib.pyplot as plt
 import streamlit as st
+import plotly.graph_objs as go
 
-# Mapping descriptive names to raw GitHub URLs of CSV files
+# GitHub raw URLs of CSV files
 files = {
     "NIFTY BANK": "https://raw.githubusercontent.com/sat2567/ss/my-new-branch/NIFTY%20BANK-29-09-2024-to-29-09-2025.csv",
     "NIFTY 50": "https://raw.githubusercontent.com/sat2567/ss/my-new-branch/NIFTY%2050-29-09-2024-to-29-09-2025.csv",
@@ -10,32 +10,36 @@ files = {
     "NIFTY SMALLCAP 100": "https://raw.githubusercontent.com/sat2567/ss/my-new-branch/NIFTY%20SMALLCAP%20100-29-09-2024-to-29-09-2025.csv"
 }
 
+all_data = {}
+
 for name, url in files.items():
-    st.write(f"Loading data for {name}...")
-    
-    try:
-        df = pd.read_csv(url)
-    except Exception as e:
-        st.error(f"Failed to load {name}: {e}")
-        continue
-
-    # Clean columns
+    df = pd.read_csv(url)
     df.columns = df.columns.str.strip().str.upper()
-
-    # Identify date column
-    date_col = next((col for col in ["DATE", "Date", "date"] if col in df.columns), None)
-    if date_col is None:
-        st.error(f"No date column in {name} data")
-        continue
-    
+    date_col = next(c for c in ['DATE', 'Date', 'date'] if c in df.columns)
     df[date_col] = pd.to_datetime(df[date_col])
     df.set_index(date_col, inplace=True)
+    df['MA50'] = df['CLOSE'].rolling(window=50).mean()
+    df['MA200'] = df['CLOSE'].rolling(window=200).mean()
+    all_data[name] = df
 
-    if "CLOSE" not in df.columns:
-        st.error(f"CLOSE column missing in {name} data")
-        continue
+st.title("Indices Close Price & Moving Averages Comparison")
 
-    df["MA50"] = df["CLOSE"].rolling(window=50).mean()
-    df["MA200"] = df["CLOSE"].rolling(window=200).mean()
+min_date = min(df.index.min() for df in all_data.values())
+max_date = max(df.index.max() for df in all_data.values())
 
-    st.line_chart(df[["CLOSE", "MA50", "MA200"]], height=400, width=700)
+start_date, end_date = st.date_input("Select Time Frame", value=[min_date, max_date], min_value=min_date, max_value=max_date)
+
+filtered_data = {name: df.loc[start_date:end_date] for name, df in all_data.items()}
+
+selected_indices = st.multiselect("Select Indices to Compare", options=list(filtered_data.keys()), default=list(filtered_data.keys()))
+
+fig = go.Figure()
+
+for name in selected_indices:
+    df = filtered_data[name]
+    fig.add_trace(go.Scatter(x=df.index, y=df['CLOSE'], mode='lines', name=f"{name} Close"))
+    fig.add_trace(go.Scatter(x=df.index, y=df['MA50'], mode='lines', name=f"{name} 50-day MA", line=dict(dash='dash')))
+    fig.add_trace(go.Scatter(x=df.index, y=df['MA200'], mode='lines', name=f"{name} 200-day MA", line=dict(dash='dot')))
+
+fig.update_layout(title="Indices Closing Prices & Moving Averages", xaxis_title="Date", yaxis_title="Price", hovermode='x unified')
+st.plotly_chart(fig, use_container_width=True)
