@@ -4,6 +4,50 @@ import requests
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor
 import datetime
+import time
+
+# --- Utility for quick web scraping ---
+def get_live_gold_price():
+    """Scrape current India and US gold prices."""
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        # India Gold Price (source: bullions.co.in)
+        response = requests.get("https://bullions.co.in", headers=headers, timeout=8)
+        soup = BeautifulSoup(response.text, "html.parser")
+        ind_gold_tag = soup.find("div", {"id": "gold24"})
+        us_gold_tag = soup.find("div", {"id": "us_gold"})
+        india_gold = ind_gold_tag.text.strip() if ind_gold_tag else "N/A"
+        us_gold = us_gold_tag.text.strip() if us_gold_tag else "N/A"
+    except Exception:
+        india_gold = "Error"
+        us_gold = "Error"
+    return india_gold, us_gold
+
+def get_us_indices():
+    """Scrape Dow Jones, S&P500, Nasdaq live values."""
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        # US Indices (source: moneycontrol.com)
+        response = requests.get("https://www.moneycontrol.com/markets/global-indices/", headers=headers, timeout=8)
+        soup = BeautifulSoup(response.text, "html.parser")
+        # Example parsing (adapt as necessary):
+        # Find index values using actual selectors
+        indices = {"Dow Jones": "N/A", "S&P 500": "N/A", "Nasdaq": "N/A"}
+        rows = soup.find_all("tr")
+        for row in rows:
+            cols = row.find_all("td")
+            if len(cols) > 1:
+                name = cols[0].text.strip()
+                price = cols[1].text.strip()
+                if "Dow" in name:
+                    indices["Dow Jones"] = price
+                elif "S&P" in name:
+                    indices["S&P 500"] = price
+                elif "Nasdaq" in name:
+                    indices["Nasdaq"] = price
+    except Exception:
+        indices = {"Dow Jones": "Error", "S&P 500": "Error", "Nasdaq": "Error"}
+    return indices
 
 # --- Auto refresh logic ---
 def should_refresh():
@@ -13,11 +57,11 @@ def should_refresh():
     if now >= today_9am:
         if "last_refresh_date" not in st.session_state or st.session_state["last_refresh_date"] != now.date():
             st.session_state["last_refresh_date"] = now.date()
-            st.cache_data.clear()  # Clear cache so fresh data loads
+            st.cache_data.clear()
             return True
     return False
 
-@st.cache_data(ttl=3600)  # Cache for 1 hour
+@st.cache_data(ttl=3600)
 def fetch_table(url, rename_map=None):
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
@@ -62,40 +106,35 @@ def scrape_category(category, category_label):
         df_rank = futures["rank"].result()
     if df_returns is None:
         return pd.DataFrame()
-
     def drop_common(df, common_cols):
         if df is not None:
             return df.drop(columns=[c for c in common_cols if c in df.columns], errors="ignore")
         return None
-
     rank_df = drop_common(df_rank, ["Category Name", "Crisil Rating"]) if df_rank is not None else None
     combined = df_returns
-
     if rank_df is not None and not rank_df.empty and 'Scheme Name' in rank_df.columns and 'Plan' in rank_df.columns:
         combined = combined.merge(rank_df, on=["Scheme Name", "Plan"], how="left")
-
     if 'Plan' in combined.columns and 'Scheme Name' in combined.columns:
         combined = combined[combined["Plan"] == "Regular"]
         combined = combined[combined["Scheme Name"].str.contains("Growth", case=False, na=False)]
     else:
         return pd.DataFrame()
-
-    # Updated pd.to_numeric usage without deprecated errors='ignore'
     for col in combined.columns:
         if any(period in col for period in ['1W', '1M', '3M', '6M', '1Y', '2Y', '3Y', '5Y', '10Y', 'YTD', 'Return', 'Change']):
-            combined[col] = pd.to_numeric(combined[col].astype(str).str.replace('%', '', regex=False), errors='coerce')
-        elif combined[col].dtype == object:
-            # Replace commas then try conversion safely
-            try:
-                combined[col] = pd.to_numeric(combined[col].str.replace(',', ''))
-            except Exception:
-                pass
-
+            combined[col] = pd.to_numeric(
+                combined[col].astype(str).str.replace('%', '', regex=False),
+                errors='coerce'
+            )
+        elif combined[col].dtype == 'object':
+            if combined[col].str.contains(',').any():
+                combined[col] = pd.to_numeric(
+                    combined[col].str.replace(',', ''),
+                    errors='ignore'
+                )
     if not combined.empty:
         combined["Category"] = category_label
         combined = combined.dropna(subset=['Scheme Name'])
         combined = combined.dropna(axis=1, how='all')
-
         def rename_return_col(col):
             col_clean = col.replace("_x", "").replace("_y", "").upper()
             mapping = {
@@ -111,35 +150,42 @@ def scrape_category(category, category_label):
                 "10Y": "Return 10Y"
             }
             return mapping.get(col_clean, col_clean)
-
         combined.columns = [rename_return_col(c) for c in combined.columns]
         return combined
-
     return pd.DataFrame()
 
 def main():
     if should_refresh():
-        # Instead of experimental_rerun (removed), just clear cache and continue
-        st.cache_data.clear()
+        st.experimental_rerun()
+    st.title("📊 Mutual Fund Dashboard")
+    
+
+    # MARKET HIGHLIGHTS SECTION
+    india_gold, us_gold = get_live_gold_price()
+    us_indices = get_us_indices()
+    st.markdown("## 🟨 Market Highlights")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric(label="Gold (India, 24K/g)", value=india_gold)
+        st.metric(label="Gold (US, $/oz)", value=us_gold)
+    with col2:
+        st.metric(label="US Dow Jones", value=us_indices.get("Dow Jones", "N/A"))
+        st.metric(label="S&P 500", value=us_indices.get("S&P 500", "N/A"))
+        st.metric(label="NASDAQ", value=us_indices.get("Nasdaq", "N/A"))
 
     categories = {
         "All Funds": "all",
         "Flexi Cap": "flexi-cap-fund",
         "Small Cap": "small-cap-fund",
-        "Multi Cap": "multi-cap-fund",
         "Mid Cap": "mid-cap-fund",
         "Large Cap": "large-cap-fund",
+        "Multi Cap": "multi-cap-fund",
         "ELSS": "elss",
         "Sectoral": "sectoral-fund",
         "Index": "index-fund"
     }
-
     st.sidebar.header("🔍 Filters")
     selected_category = st.sidebar.selectbox("Select Fund Category:", list(categories.keys()))
-
-    st.title("📊 Mutual Fund Dashboard")
-    
-
     if categories[selected_category] == "all":
         with st.spinner("Fetching all categories..."):
             dfs = []
@@ -156,13 +202,16 @@ def main():
     else:
         with st.spinner(f"Fetching {selected_category} funds data..."):
             df = scrape_category(categories[selected_category], selected_category)
-            if df is not None and not df.empty:
+            if not df.empty:
                 df = df.dropna(axis=1, how='all')
-
     if df is not None and not df.empty:
-        st.success(f"✅ Showing {selected_category} Funds ({len(df)})")
-        # Updated to replace deprecated use_container_width argument
-        st.dataframe(df, height=600, hide_index=True, width='stretch')
+        st.success(f"✅ Showing {selected_category} Funds ({len(df)} schemes)")
+        st.dataframe(
+            df,
+            use_container_width=True,
+            height=600,
+            hide_index=True
+        )
         csv = df.to_csv(index=False).encode('utf-8')
         st.download_button(
             label="📥 Download as CSV",
