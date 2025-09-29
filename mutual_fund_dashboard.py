@@ -158,7 +158,7 @@ def main():
     if should_refresh():
         st.experimental_rerun()
     st.title("📊 Mutual Fund Dashboard")
-    st.write("Fetching live mutual fund data from Moneycontrol...")
+    
 
     # MARKET HIGHLIGHTS SECTION
     india_gold, us_gold = get_live_gold_price()
