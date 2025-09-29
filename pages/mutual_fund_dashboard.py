@@ -3,13 +3,7 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor
-
 import datetime
-import time
-
-# --- Utility for quick web scraping ---
-
-
 
 # --- Auto refresh logic ---
 def should_refresh():
@@ -116,13 +110,16 @@ def scrape_category(category, category_label):
         return combined
     return pd.DataFrame()
 
+
 def main():
     if should_refresh():
-        st.experimental_rerun()
-    st.title("📊 Mutual Fund Dashboard")
-    
+        st.session_state['needs_refresh'] = True
 
-    
+    if st.session_state.get('needs_refresh', False):
+        st.session_state['needs_refresh'] = False
+        st.experimental_rerun()
+
+    st.title("📊 Mutual Fund Dashboard")
 
     categories = {
         "All Funds": "all",
@@ -135,8 +132,10 @@ def main():
         "Sectoral": "sectoral-fund",
         "Index": "index-fund"
     }
+
     st.sidebar.header("🔍 Filters")
     selected_category = st.sidebar.selectbox("Select Fund Category:", list(categories.keys()))
+
     if categories[selected_category] == "all":
         with st.spinner("Fetching all categories..."):
             dfs = []
@@ -155,23 +154,15 @@ def main():
             df = scrape_category(categories[selected_category], selected_category)
             if not df.empty:
                 df = df.dropna(axis=1, how='all')
+
     if df is not None and not df.empty:
         st.success(f"✅ Showing {selected_category} Funds ({len(df)} schemes)")
-        st.dataframe(
-            df,
-            use_container_width=True,
-            height=600,
-            hide_index=True
-        )
+        st.dataframe(df, use_container_width=True, height=600, hide_index=True)
         csv = df.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="📥 Download as CSV",
-            data=csv,
-            file_name=f"{selected_category.lower().replace(' ', '_')}_funds.csv",
-            mime="text/csv"
-        )
+        st.download_button(label="📥 Download as CSV", data=csv, file_name=f"{selected_category.lower().replace(' ', '_')}_funds.csv", mime="text/csv")
     else:
         st.error("⚠️ Could not fetch data. Please try again later.")
+
 
 if __name__ == "__main__":
     main()
