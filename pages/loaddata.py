@@ -22,14 +22,21 @@ for name, filename in files.items():
         continue
 
     # Load data with parse_dates for any datetime column
-    df = pd.read_csv(file_path, parse_dates=['DATE'])
+    df = pd.read_csv(file_path)
 
-    # Set 'DATE' column as the index
-    df.set_index('DATE', inplace=True)
-
-    # Calculate moving averages
-    df['MA50'] = df['CLOSE'].rolling(window=50).mean()
-    df['MA200'] = df['CLOSE'].rolling(window=200).mean()
+# Strip whitespace from column headers
+    df.columns = df.columns.str.strip()
+    
+    # Find the date column name (case-insensitive common variants)
+    date_col = next((col for col in ['DATE', 'Date', 'date'] if col in df.columns), None)
+    if date_col is None:
+        raise ValueError(f"No date column found in the file {filename}")
+    
+    # Convert to datetime
+    df[date_col] = pd.to_datetime(df[date_col])
+    
+    # Set date column as index
+    df.set_index(date_col, inplace=True)
 
     # Plot closing price and moving averages
     plt.figure(figsize=(12, 6))
