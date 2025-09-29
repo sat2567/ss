@@ -3,7 +3,7 @@ import pandas as pd
 import streamlit as st
 import plotly.graph_objs as go
 
-# Define pre-existing CSV files raw URLs in GitHub repo
+# CSV files URLs
 csv_files = {
     "NIFTY BANK": "https://raw.githubusercontent.com/sat2567/ss/my-new-branch/NIFTY%20BANK-29-09-2024-to-29-09-2025.csv",
     "NIFTY 50": "https://raw.githubusercontent.com/sat2567/ss/my-new-branch/NIFTY%2050-29-09-2024-to-29-09-2025.csv",
@@ -11,8 +11,8 @@ csv_files = {
     "NIFTY SMALLCAP 100": "https://raw.githubusercontent.com/sat2567/ss/my-new-branch/NIFTY%20SMALLCAP%20100-29-09-2024-to-29-09-2025.csv"
 }
 
-# Define yfinance symbols for additional global indices
-yfinance_indices = {
+# yfinance tickers for global indices
+yf_indices = {
     "Gold (COMEX Futures)": "GC=F",
     "S&P 500": "^GSPC",
     "Dow Jones": "^DJI",
@@ -21,81 +21,68 @@ yfinance_indices = {
     "Shenzhen Component": "399001.SZ"
 }
 
+def normalize_csv(df):
+    df.columns = df.columns.str.strip().str.upper()
+    date_col = next(col for col in ['DATE', 'Date', 'date'] if col in df.columns)
+    df[date_col] = pd.to_datetime(df[date_col], dayfirst=True)
+    df.set_index(date_col, inplace=True)
+    if 'VOLUME' not in df.columns and 'SHARES TRADED' in df.columns:
+        df.rename(columns={'SHARES TRADED': 'VOLUME'}, inplace=True)
+    if 'CLOSE' not in df.columns:
+        close_candidates = [c for c in df.columns if 'CLOSE' in c]
+        if close_candidates:
+            df.rename(columns={close_candidates[0]: 'CLOSE'}, inplace=True)
+    for col in ['OPEN', 'HIGH', 'LOW', 'CLOSE', 'VOLUME']:
+        if col not in df.columns:
+            df[col] = pd.NA
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+    return df[['OPEN', 'HIGH', 'LOW', 'CLOSE', 'VOLUME']].sort_index()
+
+def normalize_yf(df):
+    df.rename(columns=str.upper, inplace=True)
+    df.index = pd.to_datetime(df.index)
+    for col in ['OPEN', 'HIGH', 'LOW', 'CLOSE', 'VOLUME']:
+        if col not in df.columns:
+            df[col] = pd.NA
+    return df[['OPEN', 'HIGH', 'LOW', 'CLOSE', 'VOLUME']].sort_index()
+
 # Load CSV data
 csv_data = {}
 for name, url in csv_files.items():
     df = pd.read_csv(url)
-    df.columns = df.columns.str.strip().str.upper()
-    date_col = next(c for c in ['DATE','Date','date'] if c in df.columns)
-    df[date_col] = pd.to_datetime(df[date_col], dayfirst=True)
-    df.set_index(date_col, inplace=True)
-    csv_data[name] = df
+    csv_data[name] = normalize_csv(df)
 
 # Download yfinance data
 yf_data = {}
-for name, symbol in yfinance_indices.items():
-    df = yf.download(symbol, period="5y", interval="1wk", auto_adjust=True)
+for name, ticker in yf_indices.items():
+    df = yf.download(ticker, period='5y', interval='1wk', auto_adjust=True)
     if not df.empty:
-        df = df[["Close"]].rename(columns={"Close": "CLOSE"})
-        df.index = pd.to_datetime(df.index)
-        yf_data[name] = df
+        yf_data[name] = normalize_yf(df)
 
-# Combine all datasets into one dict with unified structure ('CLOSE' column)
-all_data = {}
-# Add CSV data first, ensure 'CLOSE' column exists (NIFTY CSV might have 'CLOSE' column in uppercase)
-for name, df in csv_data.items():
-    # Ensure closing price column named 'CLOSE'
-    if "CLOSE" not in df.columns:
-        close_col = next((col for col in df.columns if "CLOSE" in col), None)
-        if close_col:
-            df.rename(columns={close_col: "CLOSE"}, inplace=True)
-        else:
-            continue
-    all_data[name] = df[["CLOSE"]].copy()
+all_data = {**csv_data, **yf_data}
 
-# Add yfinance data
-for name, df in yf_data.items():
-    all_data[name] = df.copy()
+st.title('Combined Indices OHLC & MAs')
 
-# Streamlit UI
-st.title("Combined Indices Close Price & Moving Averages")
-
-# Compute overall min and max dates from all datasets
 all_dates = pd.concat([df.index.to_series() for df in all_data.values()])
-min_date = all_dates.min()
-max_date = all_dates.max()
+min_date, max_date = all_dates.min(), all_dates.max()
 
-start_date, end_date = st.date_input("Select Date Range", value=[min_date, max_date], min_value=min_date, max_value=max_date)
+start_date, end_date = st.date_input('Select Date Range', value=[min_date, max_date], min_value=min_date, max_value=max_date, key='date_range')
 
-filtered_data = {}
-for name, df in all_data.items():
-    filtered_data[name] = df.loc[start_date:end_date]
+filtered = {name: df.loc[start_date:end_date] for name, df in all_data.items()}
 
-# Select indices to compare
-selected_indices = st.multiselect("Select Indices to Compare", options=sorted(filtered_data.keys()), default=sorted(filtered_data.keys()))
+indices = st.multiselect('Select Indices', options=list(filtered.keys()), default=list(filtered.keys()))
 
-# Select moving average windows
-ma_windows = st.multiselect("Moving Average Window Sizes (days)", options=[10, 20, 50, 100, 200], default=[50, 200])
+ma_windows = st.multiselect('Moving Average Windows (days)', options=[10, 20, 50, 100, 200], default=[50, 200])
 
-# Plot combined figure
-fig = go.Figure()
-
-for name in selected_indices:
-    df = filtered_data[name]
-    fig.add_trace(go.Scatter(x=df.index, y=df['CLOSE'], mode='lines', name=f'{name} Close'))
+for name in indices:
+    df = filtered[name].copy()
+    st.subheader(name)
+    fig = go.Figure()
+    for col in ['OPEN', 'HIGH', 'LOW', 'CLOSE']:
+        fig.add_trace(go.Scatter(x=df.index, y=df[col], mode='lines', name=col))
     for window in ma_windows:
-        ma_col = f"MA{window}"
-        df[ma_col] = df['CLOSE'].rolling(window=window).mean()
-        fig.add_trace(go.Scatter(x=df.index, y=df[ma_col], mode='lines', name=f'{name} {window}-Day MA',
-                                 line=dict(dash='dash' if window != 200 else 'dot')))
-
-fig.update_layout(
-    title="Indices Closing Prices and Moving Averages",
-    xaxis_title="Date",
-    yaxis_title="Price",
-    legend_title="Legend",
-    height=700,
-    hovermode="x unified"
-)
-
-st.plotly_chart(fig, use_container_width=True)
+        ma_label = f'MA{window}'
+        df[ma_label] = df['CLOSE'].rolling(window=window).mean()
+        fig.add_trace(go.Scatter(x=df.index, y=df[ma_label], mode='lines', name=f'{window}-Day MA', line=dict(dash='dash')))
+    fig.update_layout(xaxis_title='Date', yaxis_title='Price', hovermode='x unified', height=500)
+    st.plotly_chart(fig, use_container_width=True)
