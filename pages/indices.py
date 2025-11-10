@@ -4,9 +4,38 @@ import nsepython as ns
 from datetime import datetime
 import matplotlib.pyplot as plt
 
-st.title("📊 Nifty Indices Visualization")
+st.set_page_config(page_title="Nifty Indices Dashboard", layout="wide")
 
-# Define the indices
+st.title("📊 Nifty Indices Dashboard")
+
+# -------------------------
+# 🧾 Static Technical Table
+# -------------------------
+summary_data = {
+    "Index": ["Nifty 50", "Nifty Midcap 100", "Nifty Smallcap 100"],
+    "Price (Nov 7)": [25492, 59843, 18076],
+    "PE Ratio": [22.57, 33.5, 31.0],
+    "20D MA": ["~25,520", "~59,700", "~18,150"],
+    "50D MA": ["~25,315", "~58,950", "~17,990"],
+    "100D MA": ["~25,210", "~57,900", "~17,910"],
+    "200D MA": ["~24,440", "~54,100", "~16,750"],
+    "RSI": [49.2, 50, 48],
+    "MACD": ["Mild Bearish", "Mild Bullish", "Slightly Bearish"],
+    "Technical Position": [
+        "near 20D/50D support, neutral-bearish",
+        "above major MAs, MACD neutral-bullish",
+        "near short-term MAs, RSI neutral"
+    ],
+}
+
+st.subheader("📈 Current Technical Overview (as of Nov 7)")
+summary_df = pd.DataFrame(summary_data)
+st.dataframe(summary_df, use_container_width=True)
+
+# -------------------------
+# 🧮 Chart Section
+# -------------------------
+
 indices = ['NIFTY 50', 'NIFTY MIDCAP 150', 'NIFTY SMALLCAP 250']
 
 # Function to extract data
@@ -32,11 +61,11 @@ def extract_data():
     return data_dict
 
 # Sidebar options for moving averages
-st.sidebar.header("Chart Options")
+st.sidebar.header("📉 Chart Options")
 show_ma50 = st.sidebar.checkbox("Show 50-day MA", value=False)
 show_ma200 = st.sidebar.checkbox("Show 200-day MA", value=False)
 
-# Button to extract + plot
+# Extract + plot button
 if st.button("📈 Extract and Plot Data"):
     st.write("Fetching data... Please wait ⏳")
     data_dict = extract_data()
