@@ -4,11 +4,14 @@ import nsepython as ns
 from datetime import datetime
 import plotly.graph_objects as go
 
+# -------------------------
+# Page setup
+# -------------------------
 st.set_page_config(page_title="Nifty Indices Dashboard", layout="wide")
 st.title("📊 Nifty Indices Dashboard")
 
 # -------------------------
-# 🧾 Static Technical Table
+# Static Technical Table
 # -------------------------
 summary_data = {
     "Index": ["Nifty 50", "Nifty Midcap 100", "Nifty Smallcap 100"],
@@ -32,7 +35,7 @@ summary_df = pd.DataFrame(summary_data)
 st.dataframe(summary_df, use_container_width=True)
 
 # -------------------------
-# ⚙️ Fetching Function
+# Fetching Function
 # -------------------------
 indices = {
     "NIFTY 50": ["NIFTY 50"],
@@ -44,6 +47,7 @@ def fetch_index_data(index_names):
     """Try multiple index names to get valid NSE data."""
     current_year = datetime.now().year
     all_data = []
+
     for name in index_names:
         for year in range(current_year - 5, current_year + 1):
             start = datetime(year, 1, 1)
@@ -87,18 +91,18 @@ def extract_all_data():
     return combined
 
 # -------------------------
-# 📉 Sidebar Options
+# Sidebar
 # -------------------------
 st.sidebar.header("📉 Chart Options")
 show_ma50 = st.sidebar.checkbox("Show 50-day MA", value=False)
 show_ma200 = st.sidebar.checkbox("Show 200-day MA", value=False)
 
 # -------------------------
-# 📈 Extract & Plot
+# Extract & Plot
 # -------------------------
 if st.button("📈 Extract and Plot Data"):
-    st.write("Fetching data... Please wait ⏳")
-    df = extract_all_data()
+    with st.spinner("Fetching data... please wait ⏳"):
+        df = extract_all_data()
 
     if df.empty:
         st.error("❌ No valid data retrieved. Try again later.")
@@ -106,7 +110,7 @@ if st.button("📈 Extract and Plot Data"):
 
     st.success("✅ Data fetched successfully!")
 
-    # Add moving averages
+    # Moving averages
     if show_ma50:
         for col in df.columns:
             df[f"{col}_MA50"] = df[col].rolling(50).mean()
@@ -115,11 +119,12 @@ if st.button("📈 Extract and Plot Data"):
             df[f"{col}_MA200"] = df[col].rolling(200).mean()
 
     # -------------------------
-    # 📊 Plotly Interactive Chart
+    # Plotly Interactive Chart
     # -------------------------
     fig = go.Figure()
     base_colors = ["#1f77b4", "#ff7f0e", "#2ca02c"]
 
+    # Main price lines
     for i, col in enumerate([c for c in df.columns if "MA" not in c]):
         fig.add_trace(go.Scatter(
             x=df.index,
@@ -127,30 +132,33 @@ if st.button("📈 Extract and Plot Data"):
             mode="lines",
             name=col,
             line=dict(width=2, color=base_colors[i % len(base_colors)]),
-            hovertemplate=f"{col}<br>Date: %{x|%d-%b-%Y}<br>Value: %{y:.2f}<extra></extra>"
+            hovertemplate=f"<b>{col}</b><br>Date: %{x|%d-%b-%Y}<br>Value: %{y:.2f}<extra></extra>"
         ))
 
     # Moving averages
     if show_ma50:
         for col in [c for c in df.columns if "MA50" in c]:
             fig.add_trace(go.Scatter(
-                x=df.index, y=df[col],
+                x=df.index,
+                y=df[col],
                 mode="lines",
                 name=col,
                 line=dict(width=1.5, dash="dot"),
-                hovertemplate=f"{col}<br>Date: %{x|%d-%b-%Y}<br>Value: %{y:.2f}<extra></extra>"
+                hovertemplate=f"<b>{col}</b><br>Date: %{x|%d-%b-%Y}<br>Value: %{y:.2f}<extra></extra>"
             ))
 
     if show_ma200:
         for col in [c for c in df.columns if "MA200" in c]:
             fig.add_trace(go.Scatter(
-                x=df.index, y=df[col],
+                x=df.index,
+                y=df[col],
                 mode="lines",
                 name=col,
                 line=dict(width=1.5, dash="dash"),
-                hovertemplate=f"{col}<br>Date: %{x|%d-%b-%Y}<br>Value: %{y:.2f}<extra></extra>"
+                hovertemplate=f"<b>{col}</b><br>Date: %{x|%d-%b-%Y}<br>Value: %{y:.2f}<extra></extra>"
             ))
 
+    # Chart title
     title_suffix = []
     if show_ma50:
         title_suffix.append("50D MA")
@@ -158,7 +166,7 @@ if st.button("📈 Extract and Plot Data"):
         title_suffix.append("200D MA")
 
     fig.update_layout(
-        title=f"Nifty Indices Closing Prices{' with ' + ' & '.join(title_suffix) if title_suffix else ''}",
+        title=f"Nifty Indices{' with ' + ' & '.join(title_suffix) if title_suffix else ''}",
         xaxis_title="Date",
         yaxis_title="Index Value",
         hovermode="x unified",
