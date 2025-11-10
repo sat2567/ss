@@ -6,3 +6,4 @@ yfinance
 matplotlib
 seaborn
 plotly
+nsepython
