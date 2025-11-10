@@ -1,88 +1,87 @@
-import pandas as pd
 import streamlit as st
-import plotly.graph_objs as go
+import pandas as pd
+import nsepython as ns
+from datetime import datetime
+import matplotlib.pyplot as plt
 
-# CSV data URLs
-csv_files = {
-    "NIFTY BANK": "NIFTY BANK-10-10-2025-to-10-11-2025.csv",
-    "NIFTY 50": "NIFTY 50-10-10-2025-to-10-11-2025.csv",
-    "NIFTY MIDCAP 100": "NIFTY MIDCAP 150-10-10-2025-to-10-11-2025.csv",
-    "NIFTY SMALLCAP 100": "NIFTY SMALLCAP 250-10-10-2025-to-10-11-2025.csv"
-}
+st.title("Nifty Indices Data Extraction and Visualization")
 
-def normalize_csv(df):
-    df.columns = df.columns.str.strip().str.upper()
-    date_col = next(col for col in ['DATE', 'Date', 'date'] if col in df.columns)
-    df[date_col] = pd.to_datetime(df[date_col], dayfirst=True)
-    df.set_index(date_col, inplace=True)
-    if 'VOLUME' not in df.columns and 'SHARES TRADED' in df.columns:
-        df.rename(columns={'SHARES TRADED': 'VOLUME'}, inplace=True)
-    if 'CLOSE' not in df.columns:
-        close_candidates = [c for c in df.columns if 'CLOSE' in c]
-        if close_candidates:
-            df.rename(columns={close_candidates[0]: 'CLOSE'}, inplace=True)
-    df['CLOSE'] = pd.to_numeric(df['CLOSE'], errors='coerce')
-    return df[['CLOSE']].sort_index()
+# Define the indices
+indices = ['NIFTY 50', 'NIFTY MIDCAP 150', 'NIFTY SMALLCAP 250']
 
-# Load and normalize CSV data
-csv_data = {name: normalize_csv(pd.read_csv(url)) for name, url in csv_files.items()}
+# Function to extract data
+def extract_data():
+    st.write("Extracting data... This may take a few minutes.")
+    current_year = datetime.now().year
+    data_dict = {}
+    for index in indices:
+        st.write(f"Fetching data for {index}...")
+        data_list = []
+        for year in range(current_year - 5, current_year + 1):
+            start = datetime(year, 1, 1)
+            end = datetime(year, 12, 31)
+            if end > datetime.now():
+                end = datetime.now()
+            start_str = start.strftime('%d-%b-%Y')
+            end_str = end.strftime('%d-%b-%Y')
+            data = ns.index_history(index, start_str, end_str)
+            data_list.append(data)
+        data = pd.concat(data_list, ignore_index=True)
+        data = data.drop_duplicates(subset=['HistoricalDate'])
+        data['Date'] = pd.to_datetime(data['HistoricalDate'], format='%d %b %Y')
+        data = data.set_index('Date').sort_index()
+        data_dict[index] = data
+    return data_dict
 
-st.title('Compare Indices: Closing Prices')
+# Button to extract data
+if st.button("Extract Data"):
+    data_dict = extract_data()
+    st.session_state['data'] = data_dict
+    st.success("Data extracted successfully!")
 
-# Find common date range
-all_dates = pd.concat([df.index.to_series() for df in csv_data.values()])
-min_date, max_date = all_dates.min(), all_dates.max()
+# If data is available, visualize
+if 'data' in st.session_state:
+    data_dict = st.session_state['data']
 
-start_date, end_date = st.date_input(
-    'Select Date Range',
-    value=[min_date, max_date],
-    min_value=min_date,
-    max_value=max_date,
-    key='date_range'
-)
+    # Combine data
+    combined_df = pd.DataFrame()
+    for index, df in data_dict.items():
+        combined_df[f"{index.replace(' ', '_')}_CLOSE"] = df['CLOSE']
 
-# Filter data by selected range
-filtered_data = {name: df.loc[start_date:end_date] for name, df in csv_data.items()}
+    # Calculate moving averages
+    for col in combined_df.columns:
+        combined_df[f"{col}_MA50"] = combined_df[col].rolling(window=50).mean()
+        combined_df[f"{col}_MA200"] = combined_df[col].rolling(window=200).mean()
 
-# Select indices
-indices = st.multiselect('Select Indices to Plot', options=list(filtered_data.keys()), default=list(filtered_data.keys()))
+    st.write("Combined Data Preview:")
+    st.dataframe(combined_df.tail())
 
-# Normalization option
-normalize_option = st.checkbox('Normalize Prices (Start at 100)', value=True)
-yaxis_label = 'Normalized Price (Start = 100)' if normalize_option else 'Price'
+    # Plot
+    st.write("Combined Chart with Moving Averages:")
+    fig, ax = plt.subplots(figsize=(14, 8))
+    for col in combined_df.columns:
+        if 'CLOSE' in col:
+            ax.plot(combined_df.index, combined_df[col], label=col)
+        elif 'MA50' in col:
+            ax.plot(combined_df.index, combined_df[col], linestyle='--', label=col)
+        elif 'MA200' in col:
+            ax.plot(combined_df.index, combined_df[col], linestyle=':', label=col)
 
-# Create a combined chart
-fig = go.Figure()
+    ax.set_xlabel('Date')
+    ax.set_ylabel('Index Value')
+    ax.set_title('Nifty Indices CLOSE Prices with 50-day and 200-day Moving Averages')
+    ax.legend()
+    ax.grid(True)
+    st.pyplot(fig)
 
-for name in indices:
-    df = filtered_data[name].copy()
-
-    # Normalize if selected
-    if normalize_option:
-        if not df['CLOSE'].empty:
-            base = df['CLOSE'].iloc[0]
-            df['CLOSE_NORM'] = (df['CLOSE'] / base) * 100
-            plot_col = 'CLOSE_NORM'
-        else:
-            plot_col = 'CLOSE'
-    else:
-        plot_col = 'CLOSE'
-
-    # Add main close line
-    fig.add_trace(go.Scatter(
-        x=df.index, y=df[plot_col],
-        mode='lines', name=f'{name} (Close)',
-        line=dict(width=2)
-    ))
-
-# Layout
-fig.update_layout(
-    title="Indices Comparison Chart",
-    xaxis_title='Date',
-    yaxis_title=yaxis_label,
-    hovermode='x unified',
-    height=600,
-    legend=dict(orientation='h', y=-0.2)
-)
-
-st.plotly_chart(fig, use_container_width=True)
+    # Download options
+    for index, df in data_dict.items():
+        csv = df.to_csv()
+        st.download_button(
+            label=f"Download {index} Data",
+            data=csv,
+            file_name=f"{index.replace(' ', '_')}_last_5_years.csv",
+            mime='text/csv'
+        )
+else:
+    st.write("Click 'Extract Data' to start.")
