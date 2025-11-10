@@ -27,8 +27,9 @@ def normalize_csv(df):
 # Load and normalize CSV data
 csv_data = {name: normalize_csv(pd.read_csv(url)) for name, url in csv_files.items()}
 
-st.title('CSV Indices Closing Prices & Moving Averages')
+st.title('Compare Indices: Closing Prices & Moving Averages')
 
+# Find common date range
 all_dates = pd.concat([df.index.to_series() for df in csv_data.values()])
 min_date, max_date = all_dates.min(), all_dates.max()
 
@@ -40,21 +41,57 @@ start_date, end_date = st.date_input(
     key='date_range'
 )
 
+# Filter data by selected range
 filtered_data = {name: df.loc[start_date:end_date] for name, df in csv_data.items()}
 
+# Select indices and MAs
 indices = st.multiselect('Select Indices to Plot', options=list(filtered_data.keys()), default=list(filtered_data.keys()))
 ma_windows = st.multiselect('Select Moving Average Windows (days)', options=[10, 20, 50, 100, 200], default=[50, 200])
 
+# Normalization option
+normalize_option = st.checkbox('Normalize Prices (Start at 100)', value=True)
+
+# Create a combined chart
+fig = go.Figure()
+
 for name in indices:
     df = filtered_data[name].copy()
-    st.subheader(name)
-    fig = go.Figure()
-    # Plot Close price
-    fig.add_trace(go.Scatter(x=df.index, y=df['CLOSE'], mode='lines', name='Close', line=dict(width=2)))
-    # Plot MAs
+
+    # Normalize if selected
+    if normalize_option:
+        base = df['CLOSE'].iloc[0]
+        df['CLOSE_NORM'] = (df['CLOSE'] / base) * 100
+        plot_col = 'CLOSE_NORM'
+        yaxis_label = 'Normalized Price (Start = 100)'
+    else:
+        plot_col = 'CLOSE'
+        yaxis_label = 'Price'
+
+    # Add main close line
+    fig.add_trace(go.Scatter(
+        x=df.index, y=df[plot_col],
+        mode='lines', name=f'{name} (Close)',
+        line=dict(width=2)
+    ))
+
+    # Add moving averages
     for window in ma_windows:
-        ma_label = f'MA{window}'
-        df[ma_label] = df['CLOSE'].rolling(window=window).mean()
-        fig.add_trace(go.Scatter(x=df.index, y=df[ma_label], mode='lines', name=f'{window}-Day MA', line=dict(dash='dash')))
-    fig.update_layout(xaxis_title='Date', yaxis_title='Price', hovermode='x unified', height=500)
-    st.plotly_chart(fig, use_container_width=True)
+        ma_label = f'{name} MA{window}'
+        df[ma_label] = df[plot_col].rolling(window=window).mean()
+        fig.add_trace(go.Scatter(
+            x=df.index, y=df[ma_label],
+            mode='lines', name=f'{name} {window}-Day MA',
+            line=dict(dash='dash')
+        ))
+
+# Layout
+fig.update_layout(
+    title="Indices Comparison Chart",
+    xaxis_title='Date',
+    yaxis_title=yaxis_label,
+    hovermode='x unified',
+    height=600,
+    legend=dict(orientation='h', y=-0.2)
+)
+
+st.plotly_chart(fig, use_container_width=True)
