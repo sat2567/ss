@@ -43,6 +43,7 @@ normalize = st.checkbox("Normalize Prices (Start = 100)", value=True)
 # 📥 Download Data
 # ------------------------
 data = {}
+
 for name, symbol in indices.items():
     df = yf.download(symbol, period=period, interval=interval, auto_adjust=True, progress=False)
     if not df.empty:
@@ -57,13 +58,16 @@ if not data:
 
 # Combine all data
 df_all = pd.concat(data.values(), axis=1)
+df_all.columns = list(data.keys())  # ✅ ensure column names are plain strings
 df_all.dropna(how='all', inplace=True)
 
-# Allow user to select which indices to show
+# ------------------------
+# 🔍 Select Which Indices to Display
+# ------------------------
 selected_indices = st.multiselect(
     "Select Indices to Display",
     options=list(df_all.columns),
-    default=list(df_all.columns)  # show all by default
+    default=list(df_all.columns)
 )
 
 df_filtered = df_all[selected_indices]
@@ -93,7 +97,7 @@ for col in df_filtered.columns:
         x=df_filtered.index,
         y=df_filtered[col],
         mode='lines',
-        name=col,
+        name=col,  # ✅ string, not tuple
         hovertemplate=(
             f"<b>{col}</b><br>" +
             "Date: %{x|%Y-%m-%d}<br>" +
