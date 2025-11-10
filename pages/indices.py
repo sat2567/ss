@@ -1,97 +1,106 @@
-import pandas as pd
 import streamlit as st
-import plotly.graph_objs as go
+import yfinance as yf
+import pandas as pd
+import plotly.graph_objects as go
+from datetime import datetime, timedelta
 
-# CSV data URLs
-csv_files = {
-    "NIFTY BANK": "NIFTY BANK-10-10-2025-to-10-11-2025.csv",
-    "NIFTY 50": "NIFTY 50-10-10-2025-to-10-11-2025.csv",
-    "NIFTY MIDCAP 100": "NIFTY MIDCAP 150-10-10-2025-to-10-11-2025.csv",
-    "NIFTY SMALLCAP 100": "NIFTY SMALLCAP 250-10-10-2025-to-10-11-2025.csv"
+# --- PAGE CONFIG ---
+st.set_page_config(page_title="🌍 Global Indices Dashboard", layout="wide")
+
+st.title("📈 Global Indices Comparison Dashboard")
+
+# --- INDEX OPTIONS ---
+indices = {
+    "Gold (COMEX Futures)": "GC=F",
+    "S&P 500 (US)": "^GSPC",
+    "Dow Jones (US)": "^DJI",
+    "Nasdaq (US)": "^IXIC",
+    "FTSE 100 (UK)": "^FTSE",
+    "DAX (Germany)": "^GDAXI",
+    "CAC 40 (France)": "^FCHI",
+    "Nikkei 225 (Japan)": "^N225",
+    "KOSPI (South Korea)": "^KS11",
+    "Hang Seng (Hong Kong)": "^HSI",
+    "Shanghai Composite (China)": "000001.SS",
+    "Shenzhen Component (China)": "399001.SZ"
 }
 
-def normalize_csv(df):
-    df.columns = df.columns.str.strip().str.upper()
-    date_col = next(col for col in ['DATE', 'Date', 'date'] if col in df.columns)
-    df[date_col] = pd.to_datetime(df[date_col], dayfirst=True)
-    df.set_index(date_col, inplace=True)
-    if 'VOLUME' not in df.columns and 'SHARES TRADED' in df.columns:
-        df.rename(columns={'SHARES TRADED': 'VOLUME'}, inplace=True)
-    if 'CLOSE' not in df.columns:
-        close_candidates = [c for c in df.columns if 'CLOSE' in c]
-        if close_candidates:
-            df.rename(columns={close_candidates[0]: 'CLOSE'}, inplace=True)
-    df['CLOSE'] = pd.to_numeric(df['CLOSE'], errors='coerce')
-    return df[['CLOSE']].sort_index()
+# --- SIDEBAR FILTERS ---
+st.sidebar.header("🔧 Controls")
 
-# Load and normalize CSV data
-csv_data = {name: normalize_csv(pd.read_csv(url)) for name, url in csv_files.items()}
-
-st.title('Compare Indices: Closing Prices & Moving Averages')
-
-# Find common date range
-all_dates = pd.concat([df.index.to_series() for df in csv_data.values()])
-min_date, max_date = all_dates.min(), all_dates.max()
-
-start_date, end_date = st.date_input(
-    'Select Date Range',
-    value=[min_date, max_date],
-    min_value=min_date,
-    max_value=max_date,
-    key='date_range'
+time_range = st.sidebar.selectbox(
+    "Select Time Range",
+    ["Last 30 Days", "Last 3 Months", "Last 1 Year", "Last 5 Years"]
 )
 
-# Filter data by selected range
-filtered_data = {name: df.loc[start_date:end_date] for name, df in csv_data.items()}
+if time_range == "Last 30 Days":
+    start_date = datetime.now() - timedelta(days=30)
+elif time_range == "Last 3 Months":
+    start_date = datetime.now() - timedelta(days=90)
+elif time_range == "Last 1 Year":
+    start_date = datetime.now() - timedelta(days=365)
+else:
+    start_date = datetime.now() - timedelta(days=5 * 365)
 
-# Select indices and MAs
-indices = st.multiselect('Select Indices to Plot', options=list(filtered_data.keys()), default=list(filtered_data.keys()))
-ma_windows = st.multiselect('Select Moving Average Windows (days)', options=[10, 20, 50, 100, 200], default=[50, 200])
+selected_indices = st.sidebar.multiselect(
+    "Select Indices to Display",
+    list(indices.keys()),
+    default=["Gold (COMEX Futures)", "S&P 500 (US)", "Nikkei 225 (Japan)"]
+)
 
-# Normalization option
-normalize_option = st.checkbox('Normalize Prices (Start at 100)', value=True)
+# --- FETCH DATA ---
+@st.cache_data(show_spinner=False)
+def fetch_data(symbols, start):
+    data = {}
+    for name, ticker in symbols.items():
+        try:
+            df = yf.download(ticker, start=start, progress=False)
+            if not df.empty:
+                data[name] = df["Close"]
+            else:
+                st.warning(f"⚠️ No data found for {name}")
+        except Exception as e:
+            st.warning(f"⚠️ Error fetching {name}: {e}")
+    return data
 
-# Create a combined chart
+data = fetch_data({k: indices[k] for k in selected_indices}, start_date)
+
+if not data:
+    st.error("No data available. Please try selecting different indices.")
+    st.stop()
+
+# --- MERGE & CLEAN ---
+valid_data = {k: v for k, v in data.items() if v is not None and not v.empty}
+df_all = pd.concat(valid_data.values(), axis=1)
+df_all.columns = list(valid_data.keys())
+df_filtered = df_all.ffill().dropna()
+
+# --- PLOT ---
 fig = go.Figure()
 
-for name in indices:
-    df = filtered_data[name].copy()
-
-    # Normalize if selected
-    if normalize_option:
-        base = df['CLOSE'].iloc[0]
-        df['CLOSE_NORM'] = (df['CLOSE'] / base) * 100
-        plot_col = 'CLOSE_NORM'
-        yaxis_label = 'Normalized Price (Start = 100)'
-    else:
-        plot_col = 'CLOSE'
-        yaxis_label = 'Price'
-
-    # Add main close line
+for col in df_filtered.columns:
     fig.add_trace(go.Scatter(
-        x=df.index, y=df[plot_col],
-        mode='lines', name=f'{name} (Close)',
-        line=dict(width=2)
+        x=df_filtered.index,
+        y=df_filtered[col],
+        mode="lines",
+        name=col,
+        hovertemplate="<b>%{text}</b><br>Date: %{x|%b %d, %Y}<br>Value: %{y:.2f}<extra></extra>",
+        text=[col] * len(df_filtered)
     ))
 
-    # Add moving averages
-    for window in ma_windows:
-        ma_label = f'{name} MA{window}'
-        df[ma_label] = df[plot_col].rolling(window=window).mean()
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df[ma_label],
-            mode='lines', name=f'{name} {window}-Day MA',
-            line=dict(dash='dash')
-        ))
-
-# Layout
+# --- STYLE ---
 fig.update_layout(
-    title="Indices Comparison Chart",
-    xaxis_title='Date',
-    yaxis_title=yaxis_label,
-    hovermode='x unified',
-    height=600,
-    legend=dict(orientation='h', y=-0.2)
+    title=f"Global Indices Performance ({time_range})",
+    xaxis_title="Date",
+    yaxis_title="Closing Price (normalized)",
+    hovermode="x unified",  # temporary
+    legend_title="Market Indices",
+    template="plotly_white",
+    hovermode="closest",  # ✅ show only hovered line!
+    height=600
 )
 
 st.plotly_chart(fig, use_container_width=True)
+
+# --- FOOTNOTE ---
+st.caption("Data source: Yahoo Finance | Updated daily")
