@@ -24,7 +24,7 @@ summary_data = {
         "near 20D/50D support, neutral-bearish",
         "above major MAs, MACD neutral-bullish",
         "near short-term MAs, RSI neutral"
-    ],
+    ]
 }
 
 st.subheader("📈 Current Technical Overview (as of Nov 7)")
@@ -41,14 +41,15 @@ indices = {
 }
 
 def fetch_index_data(index_names):
-    """Tries multiple possible index names from NSEPython"""
+    """Try multiple index names to get valid NSE data."""
     current_year = datetime.now().year
     all_data = []
     for name in index_names:
         for year in range(current_year - 5, current_year + 1):
             start = datetime(year, 1, 1)
             end = min(datetime(year, 12, 31), datetime.now())
-            start_str, end_str = start.strftime('%d-%b-%Y'), end.strftime('%d-%b-%Y')
+            start_str = start.strftime("%d-%b-%Y")
+            end_str = end.strftime("%d-%b-%Y")
 
             try:
                 data = ns.index_history(name, start_str, end_str)
@@ -56,17 +57,18 @@ def fetch_index_data(index_names):
                     all_data.append(data)
             except Exception:
                 continue
+
         if all_data:
             break
 
     if not all_data:
         return None
 
-    df = pd.concat(all_data, ignore_index=True).drop_duplicates(subset=['HistoricalDate'])
-    df['Date'] = pd.to_datetime(df['HistoricalDate'], format='%d %b %Y')
-    df = df.set_index('Date').sort_index()
-    df['CLOSE'] = pd.to_numeric(df['CLOSE'], errors='coerce')
-    return df[['CLOSE']]
+    df = pd.concat(all_data, ignore_index=True).drop_duplicates(subset=["HistoricalDate"])
+    df["Date"] = pd.to_datetime(df["HistoricalDate"], format="%d %b %Y", errors="coerce")
+    df = df.set_index("Date").sort_index()
+    df["CLOSE"] = pd.to_numeric(df["CLOSE"], errors="coerce")
+    return df[["CLOSE"]]
 
 def extract_all_data():
     """Fetch and merge data for all indices."""
@@ -74,14 +76,14 @@ def extract_all_data():
     for label, names in indices.items():
         df = fetch_index_data(names)
         if df is not None and not df.empty:
-            data_dict[label] = df.rename(columns={'CLOSE': label})
+            data_dict[label] = df.rename(columns={"CLOSE": label})
 
     if not data_dict:
         return pd.DataFrame()
 
     combined = pd.concat(data_dict.values(), axis=1).sort_index()
-    combined = combined.resample('D').ffill()
-    combined = combined.dropna(how='all')
+    combined = combined.resample("D").ffill()
+    combined = combined.dropna(how="all")
     return combined
 
 # -------------------------
@@ -102,7 +104,7 @@ if st.button("📈 Extract and Plot Data"):
         st.error("❌ No valid data retrieved. Try again later.")
         st.stop()
 
-    st.success("Data fetched successfully!")
+    st.success("✅ Data fetched successfully!")
 
     # Add moving averages
     if show_ma50:
@@ -116,13 +118,13 @@ if st.button("📈 Extract and Plot Data"):
     # 📊 Plotly Interactive Chart
     # -------------------------
     fig = go.Figure()
+    base_colors = ["#1f77b4", "#ff7f0e", "#2ca02c"]
 
-    base_colors = ['#1f77b4', '#ff7f0e', '#2ca02c']
-    for i, col in enumerate([c for c in df.columns if not ('MA' in c)]):
+    for i, col in enumerate([c for c in df.columns if "MA" not in c]):
         fig.add_trace(go.Scatter(
             x=df.index,
             y=df[col],
-            mode='lines',
+            mode="lines",
             name=col,
             line=dict(width=2, color=base_colors[i % len(base_colors)]),
             hovertemplate=f"{col}<br>Date: %{x|%d-%b-%Y}<br>Value: %{y:.2f}<extra></extra>"
@@ -130,27 +132,30 @@ if st.button("📈 Extract and Plot Data"):
 
     # Moving averages
     if show_ma50:
-        for col in [c for c in df.columns if 'MA50' in c]:
+        for col in [c for c in df.columns if "MA50" in c]:
             fig.add_trace(go.Scatter(
                 x=df.index, y=df[col],
-                mode='lines',
+                mode="lines",
                 name=col,
-                line=dict(width=1.5, dash='dot'),
+                line=dict(width=1.5, dash="dot"),
                 hovertemplate=f"{col}<br>Date: %{x|%d-%b-%Y}<br>Value: %{y:.2f}<extra></extra>"
             ))
+
     if show_ma200:
-        for col in [c for c in df.columns if 'MA200' in c]:
+        for col in [c for c in df.columns if "MA200" in c]:
             fig.add_trace(go.Scatter(
                 x=df.index, y=df[col],
-                mode='lines',
+                mode="lines",
                 name=col,
-                line=dict(width=1.5, dash='dash'),
+                line=dict(width=1.5, dash="dash"),
                 hovertemplate=f"{col}<br>Date: %{x|%d-%b-%Y}<br>Value: %{y:.2f}<extra></extra>"
             ))
 
     title_suffix = []
-    if show_ma50: title_suffix.append("50D MA")
-    if show_ma200: title_suffix.append("200D MA")
+    if show_ma50:
+        title_suffix.append("50D MA")
+    if show_ma200:
+        title_suffix.append("200D MA")
 
     fig.update_layout(
         title=f"Nifty Indices Closing Prices{' with ' + ' & '.join(title_suffix) if title_suffix else ''}",
