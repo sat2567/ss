@@ -60,12 +60,17 @@ def extract_data():
             df = df.drop_duplicates(subset=['HistoricalDate'])
             df['Date'] = pd.to_datetime(df['HistoricalDate'], format='%d %b %Y')
             df = df.set_index('Date').sort_index()
+
+            # ✅ Ensure numeric values
+            df['CLOSE'] = pd.to_numeric(df['CLOSE'], errors='coerce')
             df = df[['CLOSE']].rename(columns={'CLOSE': index})
             data_dict[index] = df
 
-    # Combine all indices on same timeline
+    # Combine all indices and clean
     combined = pd.concat(data_dict.values(), axis=1).sort_index()
     combined = combined.resample('D').ffill()  # fill missing days
+    combined = combined.apply(pd.to_numeric, errors='coerce')  # ensure all numeric
+    combined = combined.dropna(how='all')  # drop completely empty rows
     return combined
 
 # Sidebar options
@@ -77,6 +82,11 @@ show_ma200 = st.sidebar.checkbox("Show 200-day MA", value=False)
 if st.button("📈 Extract and Plot Data"):
     st.write("Fetching data... Please wait ⏳")
     df = extract_data()
+
+    if df.empty:
+        st.error("❌ No valid data retrieved. Try again later.")
+        st.stop()
+
     st.success("Data fetched successfully!")
 
     # Add moving averages if selected
@@ -89,17 +99,19 @@ if st.button("📈 Extract and Plot Data"):
 
     # Plot
     fig, ax = plt.subplots(figsize=(14, 8))
-    colors = ['#1f77b4', '#ff7f0e', '#2ca02c']  # base colors for main indices
+    colors = ['#1f77b4', '#ff7f0e', '#2ca02c']
 
+    # Plot base lines
     for i, col in enumerate([c for c in df.columns if not ('MA' in c)]):
         ax.plot(df.index, df[col], label=col, linewidth=2, color=colors[i % len(colors)])
 
+    # Plot moving averages
     if show_ma50:
         for col in [c for c in df.columns if 'MA50' in c]:
-            ax.plot(df.index, df[col], linestyle='--', label=col, alpha=0.7)
+            ax.plot(df.index, df[col], linestyle='--', label=col, alpha=0.8)
     if show_ma200:
         for col in [c for c in df.columns if 'MA200' in c]:
-            ax.plot(df.index, df[col], linestyle=':', label=col, alpha=0.7)
+            ax.plot(df.index, df[col], linestyle=':', label=col, alpha=0.8)
 
     ax.set_xlabel('Date')
     ax.set_ylabel('Index Value')
