@@ -5,7 +5,6 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="Nifty Indices Dashboard", layout="wide")
-
 st.title("📊 Nifty Indices Dashboard")
 
 # -------------------------
@@ -35,72 +34,80 @@ st.dataframe(summary_df, use_container_width=True)
 # -------------------------
 # 🧮 Chart Section
 # -------------------------
-
 indices = ['NIFTY 50', 'NIFTY MIDCAP 150', 'NIFTY SMALLCAP 250']
 
-# Function to extract data
 def extract_data():
+    """Fetch and merge last 5 years of data for given indices."""
     current_year = datetime.now().year
     data_dict = {}
+
     for index in indices:
         data_list = []
         for year in range(current_year - 5, current_year + 1):
             start = datetime(year, 1, 1)
-            end = datetime(year, 12, 31)
-            if end > datetime.now():
-                end = datetime.now()
-            start_str = start.strftime('%d-%b-%Y')
-            end_str = end.strftime('%d-%b-%Y')
-            data = ns.index_history(index, start_str, end_str)
-            data_list.append(data)
-        data = pd.concat(data_list, ignore_index=True)
-        data = data.drop_duplicates(subset=['HistoricalDate'])
-        data['Date'] = pd.to_datetime(data['HistoricalDate'], format='%d %b %Y')
-        data = data.set_index('Date').sort_index()
-        data_dict[index] = data
-    return data_dict
+            end = min(datetime(year, 12, 31), datetime.now())
+            start_str, end_str = start.strftime('%d-%b-%Y'), end.strftime('%d-%b-%Y')
 
-# Sidebar options for moving averages
+            try:
+                data = ns.index_history(index, start_str, end_str)
+                if not data.empty:
+                    data_list.append(data)
+            except Exception:
+                continue
+
+        if data_list:
+            df = pd.concat(data_list, ignore_index=True)
+            df = df.drop_duplicates(subset=['HistoricalDate'])
+            df['Date'] = pd.to_datetime(df['HistoricalDate'], format='%d %b %Y')
+            df = df.set_index('Date').sort_index()
+            df = df[['CLOSE']].rename(columns={'CLOSE': index})
+            data_dict[index] = df
+
+    # Combine all indices on same timeline
+    combined = pd.concat(data_dict.values(), axis=1).sort_index()
+    combined = combined.resample('D').ffill()  # fill missing days
+    return combined
+
+# Sidebar options
 st.sidebar.header("📉 Chart Options")
 show_ma50 = st.sidebar.checkbox("Show 50-day MA", value=False)
 show_ma200 = st.sidebar.checkbox("Show 200-day MA", value=False)
 
-# Extract + plot button
+# Extract + plot
 if st.button("📈 Extract and Plot Data"):
     st.write("Fetching data... Please wait ⏳")
-    data_dict = extract_data()
-    st.session_state['data'] = data_dict
+    df = extract_data()
     st.success("Data fetched successfully!")
 
-    # Combine data
-    combined_df = pd.DataFrame()
-    for index, df in data_dict.items():
-        combined_df[f"{index.replace(' ', '_')}_CLOSE"] = df['CLOSE']
-
-    # Calculate moving averages only if selected
+    # Add moving averages if selected
     if show_ma50:
-        for col in combined_df.columns:
-            combined_df[f"{col}_MA50"] = combined_df[col].rolling(window=50).mean()
-
+        for col in df.columns:
+            df[f"{col}_MA50"] = df[col].rolling(50).mean()
     if show_ma200:
-        for col in combined_df.columns:
-            combined_df[f"{col}_MA200"] = combined_df[col].rolling(window=200).mean()
+        for col in df.columns:
+            df[f"{col}_MA200"] = df[col].rolling(200).mean()
 
     # Plot
     fig, ax = plt.subplots(figsize=(14, 8))
+    colors = ['#1f77b4', '#ff7f0e', '#2ca02c']  # base colors for main indices
 
-    for col in combined_df.columns:
-        if 'CLOSE' in col:
-            ax.plot(combined_df.index, combined_df[col], label=col.replace('_', ' '))
-        elif 'MA50' in col and show_ma50:
-            ax.plot(combined_df.index, combined_df[col], linestyle='--', label=col.replace('_', ' '))
-        elif 'MA200' in col and show_ma200:
-            ax.plot(combined_df.index, combined_df[col], linestyle=':', label=col.replace('_', ' '))
+    for i, col in enumerate([c for c in df.columns if not ('MA' in c)]):
+        ax.plot(df.index, df[col], label=col, linewidth=2, color=colors[i % len(colors)])
+
+    if show_ma50:
+        for col in [c for c in df.columns if 'MA50' in c]:
+            ax.plot(df.index, df[col], linestyle='--', label=col, alpha=0.7)
+    if show_ma200:
+        for col in [c for c in df.columns if 'MA200' in c]:
+            ax.plot(df.index, df[col], linestyle=':', label=col, alpha=0.7)
 
     ax.set_xlabel('Date')
     ax.set_ylabel('Index Value')
-    ax.set_title('Nifty Indices CLOSE Prices' + 
-                 (' with Moving Averages' if (show_ma50 or show_ma200) else ''))
-    ax.legend()
-    ax.grid(True)
+    title_suffix = []
+    if show_ma50: title_suffix.append("50D MA")
+    if show_ma200: title_suffix.append("200D MA")
+    ax.set_title("Nifty Indices Closing Prices" + (f" with {' & '.join(title_suffix)}" if title_suffix else ""))
+    ax.legend(loc="upper left", fontsize=9)
+    ax.grid(True, alpha=0.3)
+
     st.pyplot(fig)
