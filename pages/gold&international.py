@@ -2,6 +2,49 @@ import yfinance as yf
 import pandas as pd
 import streamlit as st
 import plotly.graph_objs as go
+# ------------------------
+# 🌍 Global Market Summary Table (Static)
+# ------------------------
+st.subheader("🌍 Global Market Summary (as of Nov 2025)")
+
+summary_data = {
+    "Asset / Index": [
+        "Gold (USD per troy oz)",
+        "South Korea (KOSPI)",
+        "Japan (Nikkei 225)",
+        "Europe (Stoxx 600)",
+        "USA (S&P 500)",
+        "USA (Dow Jones)"
+    ],
+    "Current Level (Approx.)": [
+        "$4,130.87 (Nov 11, 2025)",
+        "4,073 (Nov 10, 2025)",
+        "50,986 (Nov 10, 2025)",
+        "572.82 (Nov 10, 2025)",
+        "6,840 (Oct 31, 2025)",
+        "~47,100 (Nov 5, 2025)"
+    ],
+    "1-Week % Change": [
+        "+0.36%",
+        "-3.02%",
+        "+1.41%",
+        "+1.42%",
+        "-1.6% (approx.)",
+        "-1.2% (approx.)"
+    ],
+    "1-Month % Change": [
+        "-2.4% (approx.)",
+        "+13.6%",
+        "+8.8%",
+        "+0.16%",
+        "+2.27%",
+        "+2.5%"
+    ]
+}
+
+summary_df = pd.DataFrame(summary_data)
+
+st.dataframe(summary_df, use_container_width=True)
 
 # ------------------------
 # 🌍 Major Global Indices
