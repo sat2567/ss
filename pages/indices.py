@@ -1,178 +1,97 @@
-import streamlit as st
 import pandas as pd
-import nsepython as ns
-from datetime import datetime
-import plotly.graph_objects as go
+import streamlit as st
+import plotly.graph_objs as go
 
-# -------------------------
-# Page setup
-# -------------------------
-st.set_page_config(page_title="Nifty Indices Dashboard", layout="wide")
-st.title("📊 Nifty Indices Dashboard")
-
-# -------------------------
-# Static Technical Table
-# -------------------------
-summary_data = {
-    "Index": ["Nifty 50", "Nifty Midcap 100", "Nifty Smallcap 100"],
-    "Price (Nov 7)": [25492, 59843, 18076],
-    "PE Ratio": [22.57, 33.5, 31.0],
-    "20D MA": ["~25,520", "~59,700", "~18,150"],
-    "50D MA": ["~25,315", "~58,950", "~17,990"],
-    "100D MA": ["~25,210", "~57,900", "~17,910"],
-    "200D MA": ["~24,440", "~54,100", "~16,750"],
-    "RSI": [49.2, 50, 48],
-    "MACD": ["Mild Bearish", "Mild Bullish", "Slightly Bearish"],
-    "Technical Position": [
-        "near 20D/50D support, neutral-bearish",
-        "above major MAs, MACD neutral-bullish",
-        "near short-term MAs, RSI neutral"
-    ]
+# CSV data URLs
+csv_files = {
+    "NIFTY BANK": "NIFTY BANK-10-10-2025-to-10-11-2025.csv",
+    "NIFTY 50": "NIFTY 50-10-10-2025-to-10-11-2025.csv",
+    "NIFTY MIDCAP 100": "NIFTY MIDCAP 150-10-10-2025-to-10-11-2025.csv",
+    "NIFTY SMALLCAP 100": "NIFTY SMALLCAP 250-10-10-2025-to-10-11-2025.csv"
 }
 
-st.subheader("📈 Current Technical Overview (as of Nov 7)")
-summary_df = pd.DataFrame(summary_data)
-st.dataframe(summary_df, use_container_width=True)
+def normalize_csv(df):
+    df.columns = df.columns.str.strip().str.upper()
+    date_col = next(col for col in ['DATE', 'Date', 'date'] if col in df.columns)
+    df[date_col] = pd.to_datetime(df[date_col], dayfirst=True)
+    df.set_index(date_col, inplace=True)
+    if 'VOLUME' not in df.columns and 'SHARES TRADED' in df.columns:
+        df.rename(columns={'SHARES TRADED': 'VOLUME'}, inplace=True)
+    if 'CLOSE' not in df.columns:
+        close_candidates = [c for c in df.columns if 'CLOSE' in c]
+        if close_candidates:
+            df.rename(columns={close_candidates[0]: 'CLOSE'}, inplace=True)
+    df['CLOSE'] = pd.to_numeric(df['CLOSE'], errors='coerce')
+    return df[['CLOSE']].sort_index()
 
-# -------------------------
-# Fetching Function
-# -------------------------
-indices = {
-    "NIFTY 50": ["NIFTY 50"],
-    "NIFTY MIDCAP 150": ["NIFTY MIDCAP 150", "NIFTY MIDCAP 100"],
-    "NIFTY SMALLCAP 250": ["NIFTY SMALLCAP 250", "NIFTY SMALLCAP 100", "NIFTY SMLCAP 100"]
-}
+# Load and normalize CSV data
+csv_data = {name: normalize_csv(pd.read_csv(url)) for name, url in csv_files.items()}
 
-def fetch_index_data(index_names):
-    """Try multiple index names to get valid NSE data."""
-    current_year = datetime.now().year
-    all_data = []
+st.title('Compare Indices: Closing Prices & Moving Averages')
 
-    for name in index_names:
-        for year in range(current_year - 5, current_year + 1):
-            start = datetime(year, 1, 1)
-            end = min(datetime(year, 12, 31), datetime.now())
-            start_str = start.strftime("%d-%b-%Y")
-            end_str = end.strftime("%d-%b-%Y")
+# Find common date range
+all_dates = pd.concat([df.index.to_series() for df in csv_data.values()])
+min_date, max_date = all_dates.min(), all_dates.max()
 
-            try:
-                data = ns.index_history(name, start_str, end_str)
-                if data is not None and not data.empty:
-                    all_data.append(data)
-            except Exception:
-                continue
+start_date, end_date = st.date_input(
+    'Select Date Range',
+    value=[min_date, max_date],
+    min_value=min_date,
+    max_value=max_date,
+    key='date_range'
+)
 
-        if all_data:
-            break
+# Filter data by selected range
+filtered_data = {name: df.loc[start_date:end_date] for name, df in csv_data.items()}
 
-    if not all_data:
-        return None
+# Select indices and MAs
+indices = st.multiselect('Select Indices to Plot', options=list(filtered_data.keys()), default=list(filtered_data.keys()))
+ma_windows = st.multiselect('Select Moving Average Windows (days)', options=[10, 20, 50, 100, 200], default=[50, 200])
 
-    df = pd.concat(all_data, ignore_index=True).drop_duplicates(subset=["HistoricalDate"])
-    df["Date"] = pd.to_datetime(df["HistoricalDate"], format="%d %b %Y", errors="coerce")
-    df = df.set_index("Date").sort_index()
-    df["CLOSE"] = pd.to_numeric(df["CLOSE"], errors="coerce")
-    return df[["CLOSE"]]
+# Normalization option
+normalize_option = st.checkbox('Normalize Prices (Start at 100)', value=True)
 
-def extract_all_data():
-    """Fetch and merge data for all indices."""
-    data_dict = {}
-    for label, names in indices.items():
-        df = fetch_index_data(names)
-        if df is not None and not df.empty:
-            data_dict[label] = df.rename(columns={"CLOSE": label})
+# Create a combined chart
+fig = go.Figure()
 
-    if not data_dict:
-        return pd.DataFrame()
+for name in indices:
+    df = filtered_data[name].copy()
 
-    combined = pd.concat(data_dict.values(), axis=1).sort_index()
-    combined = combined.resample("D").ffill()
-    combined = combined.dropna(how="all")
-    return combined
+    # Normalize if selected
+    if normalize_option:
+        base = df['CLOSE'].iloc[0]
+        df['CLOSE_NORM'] = (df['CLOSE'] / base) * 100
+        plot_col = 'CLOSE_NORM'
+        yaxis_label = 'Normalized Price (Start = 100)'
+    else:
+        plot_col = 'CLOSE'
+        yaxis_label = 'Price'
 
-# -------------------------
-# Sidebar
-# -------------------------
-st.sidebar.header("📉 Chart Options")
-show_ma50 = st.sidebar.checkbox("Show 50-day MA", value=False)
-show_ma200 = st.sidebar.checkbox("Show 200-day MA", value=False)
+    # Add main close line
+    fig.add_trace(go.Scatter(
+        x=df.index, y=df[plot_col],
+        mode='lines', name=f'{name} (Close)',
+        line=dict(width=2)
+    ))
 
-# -------------------------
-# Extract & Plot
-# -------------------------
-if st.button("📈 Extract and Plot Data"):
-    with st.spinner("Fetching data... please wait ⏳"):
-        df = extract_all_data()
-
-    if df.empty:
-        st.error("❌ No valid data retrieved. Try again later.")
-        st.stop()
-
-    st.success("✅ Data fetched successfully!")
-
-    # Moving averages
-    if show_ma50:
-        for col in df.columns:
-            df[f"{col}_MA50"] = df[col].rolling(50).mean()
-    if show_ma200:
-        for col in df.columns:
-            df[f"{col}_MA200"] = df[col].rolling(200).mean()
-
-    # -------------------------
-    # Plotly Interactive Chart
-    # -------------------------
-    fig = go.Figure()
-    base_colors = ["#1f77b4", "#ff7f0e", "#2ca02c"]
-
-    # Main price lines
-    for i, col in enumerate([c for c in df.columns if "MA" not in c]):
+    # Add moving averages
+    for window in ma_windows:
+        ma_label = f'{name} MA{window}'
+        df[ma_label] = df[plot_col].rolling(window=window).mean()
         fig.add_trace(go.Scatter(
-            x=df.index,
-            y=df[col],
-            mode="lines",
-            name=col,
-            line=dict(width=2, color=base_colors[i % len(base_colors)]),
-            hovertemplate=f"<b>{col}</b><br>Date: %{x|%d-%b-%Y}<br>Value: %{y:.2f}<extra></extra>"
+            x=df.index, y=df[ma_label],
+            mode='lines', name=f'{name} {window}-Day MA',
+            line=dict(dash='dash')
         ))
 
-    # Moving averages
-    if show_ma50:
-        for col in [c for c in df.columns if "MA50" in c]:
-            fig.add_trace(go.Scatter(
-                x=df.index,
-                y=df[col],
-                mode="lines",
-                name=col,
-                line=dict(width=1.5, dash="dot"),
-                hovertemplate=f"<b>{col}</b><br>Date: %{x|%d-%b-%Y}<br>Value: %{y:.2f}<extra></extra>"
-            ))
+# Layout
+fig.update_layout(
+    title="Indices Comparison Chart",
+    xaxis_title='Date',
+    yaxis_title=yaxis_label,
+    hovermode='x unified',
+    height=600,
+    legend=dict(orientation='h', y=-0.2)
+)
 
-    if show_ma200:
-        for col in [c for c in df.columns if "MA200" in c]:
-            fig.add_trace(go.Scatter(
-                x=df.index,
-                y=df[col],
-                mode="lines",
-                name=col,
-                line=dict(width=1.5, dash="dash"),
-                hovertemplate=f"<b>{col}</b><br>Date: %{x|%d-%b-%Y}<br>Value: %{y:.2f}<extra></extra>"
-            ))
-
-    # Chart title
-    title_suffix = []
-    if show_ma50:
-        title_suffix.append("50D MA")
-    if show_ma200:
-        title_suffix.append("200D MA")
-
-    fig.update_layout(
-        title=f"Nifty Indices{' with ' + ' & '.join(title_suffix) if title_suffix else ''}",
-        xaxis_title="Date",
-        yaxis_title="Index Value",
-        hovermode="x unified",
-        template="plotly_white",
-        legend=dict(x=0, y=1.1, orientation="h"),
-        height=700
-    )
-
-    st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig, use_container_width=True)
