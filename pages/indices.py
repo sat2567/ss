@@ -1,7 +1,26 @@
 import pandas as pd
 import streamlit as st
 import plotly.graph_objs as go
+summary_data = {
+    "Index": ["Nifty 50", "Nifty Midcap 100", "Nifty Smallcap 100"],
+    "Price (Nov 7)": [25492, 59843, 18076],
+    "PE Ratio": [22.57, 33.5, 31.0],
+    "20D MA": ["~25,520", "~59,700", "~18,150"],
+    "50D MA": ["~25,315", "~58,950", "~17,990"],
+    "100D MA": ["~25,210", "~57,900", "~17,910"],
+    "200D MA": ["~24,440", "~54,100", "~16,750"],
+    "RSI": [49.2, 50, 48],
+    "MACD": ["Mild Bearish", "Mild Bullish", "Slightly Bearish"],
+    "Technical Position": [
+        "near 20D/50D support, neutral-bearish",
+        "above major MAs, MACD neutral-bullish",
+        "near short-term MAs, RSI neutral"
+    ]
+}
 
+st.subheader("📈 Current Technical Overview (as of Nov 7)")
+summary_df = pd.DataFrame(summary_data)
+st.dataframe(summary_df, use_container_width=True)
 # CSV data URLs
 csv_files = {
     "NIFTY BANK": "NIFTY BANK-10-10-2025-to-10-11-2025.csv",
