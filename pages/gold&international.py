@@ -49,6 +49,10 @@ st.dataframe(summary_df, use_container_width=True)
 # ------------------------
 # 🌍 Major Global Indices
 # ------------------------
+
+# ------------------------
+# 🌍 Major Global Indices
+# ------------------------
 indices = {
     "Gold (COMEX Futures)": "GC=F",
     "S&P 500 (US)": "^GSPC",
@@ -79,12 +83,10 @@ period_options = {
 selected_period = st.selectbox("Select Time Range", list(period_options.keys()))
 period, interval = period_options[selected_period]
 
-# Normalization and index selection
-normalize = st.checkbox("Normalize Prices (Start = 100)", value=True)
-
 # ------------------------
 # 📥 Download Data
 # ------------------------
+st.write("⏳ Fetching data...")
 data = {}
 
 for name, symbol in indices.items():
@@ -101,7 +103,7 @@ if not data:
 
 # Combine all data
 df_all = pd.concat(data.values(), axis=1)
-df_all.columns = list(data.keys())  # ✅ ensure column names are plain strings
+df_all.columns = list(data.keys())  # Ensure clean names
 df_all.dropna(how='all', inplace=True)
 
 # ------------------------
@@ -113,11 +115,35 @@ selected_indices = st.multiselect(
     default=list(df_all.columns)
 )
 
-df_filtered = df_all[selected_indices]
+df_filtered = df_all[selected_indices].copy()
 
-# Normalize if checked
+# ------------------------
+# ⚠️ SAFE NORMALIZATION BLOCK
+# ------------------------
+normalize = st.checkbox("Normalize Prices (Start = 100)", value=False)
+
 if normalize:
-    df_filtered = df_filtered / df_filtered.iloc[0] * 100
+    missing_start = []
+
+    for col in df_filtered.columns:
+        first_valid = df_filtered[col].first_valid_index()
+
+        if first_valid is None or pd.isna(df_filtered[col].loc[first_valid]):
+            missing_start.append(col)
+
+    if missing_start:
+        st.warning(
+            f"⚠️ Cannot normalize because these indices don't have valid starting values: "
+            f"{', '.join(missing_start)}"
+        )
+    else:
+        df_normalized = df_filtered.copy()
+        for col in df_normalized.columns:
+            fv = df_normalized[col].first_valid_index()
+            df_normalized[col] = df_normalized[col] / df_normalized[col].loc[fv] * 100
+
+        df_filtered = df_normalized
+        st.success("✅ Normalization applied successfully!")
 
 # ------------------------
 # 💾 CSV Download
@@ -140,10 +166,10 @@ for col in df_filtered.columns:
         x=df_filtered.index,
         y=df_filtered[col],
         mode='lines',
-        name=col,  # ✅ string, not tuple
+        name=col,
         hovertemplate=(
-            f"<b>{col}</b><br>" +
-            "Date: %{x|%Y-%m-%d}<br>" +
+            f"<b>{col}</b><br>"
+            "Date: %{x|%Y-%m-%d}<br>"
             "Price: %{y:.2f}<extra></extra>"
         )
     ))
