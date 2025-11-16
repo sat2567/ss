@@ -23,10 +23,10 @@ summary_df = pd.DataFrame(summary_data)
 st.dataframe(summary_df, use_container_width=True)
 # CSV data URLs
 csv_files = {
-    "NIFTY BANK": "NIFTY BANK-10-10-2025-to-10-11-2025.csv",
-    "NIFTY 50": "NIFTY 50-10-10-2025-to-10-11-2025.csv",
-    "NIFTY MIDCAP 100": "NIFTY MIDCAP 150-10-10-2025-to-10-11-2025.csv",
-    "NIFTY SMALLCAP 100": "NIFTY SMALLCAP 250-10-10-2025-to-10-11-2025.csv"
+    "NIFTY BANK": "NIFTY BANK-16-10-2025-to-16-11-2025.csv",
+    "NIFTY 50": "NIFTY 50-16-10-2025-to-16-11-2025.csv",
+    "NIFTY MIDCAP 100": "NIFTY MIDCAP 150-16-10-2025-to-16-11-2025.csv",
+    "NIFTY SMALLCAP 100": "NIFTY SMALLCAP 250-16-10-2025-to-16-11-2025.csv"
 }
 
 def normalize_csv(df):
