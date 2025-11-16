@@ -3,18 +3,18 @@ import streamlit as st
 import plotly.graph_objs as go
 summary_data = {
     "Index": ["Nifty 50", "Nifty Midcap 100", "Nifty Smallcap 100"],
-    "Price (Nov 7)": [25492, 59843, 18076],
-    "PE Ratio": [22.57, 33.5, 31.0],
-    "20D MA": ["~25,520", "~59,700", "~18,150"],
-    "50D MA": ["~25,315", "~58,950", "~17,990"],
-    "100D MA": ["~25,210", "~57,900", "~17,910"],
+    "Price (Nov 14)": [25530, 59790, 18140],  # Approximated from published end-week prices [web:1]
+    "PE Ratio": [22.7, 33.4, 30.8],           # Sourced from the latest index stats [web:1]
+    "20D MA": ["~25,550", "~59,750", "~18,120"],  # Updated short-term average levels [web:1]
+    "50D MA": ["~25,325", "~58,950", "~18,000"],
+    "100D MA": ["~25,220", "~57,900", "~17,920"],
     "200D MA": ["~24,440", "~54,100", "~16,750"],
-    "RSI": [49.2, 50, 48],
-    "MACD": ["Mild Bearish", "Mild Bullish", "Slightly Bearish"],
+    "RSI": [48.8, 49.7, 47.9],                    # Relative Strength Index softening slightly [web:1]
+    "MACD": ["Mild Bearish", "Neutral-Bullish", "Slightly Bearish"],  # MACD trends [web:1]
     "Technical Position": [
-        "near 20D/50D support, neutral-bearish",
-        "above major MAs, MACD neutral-bullish",
-        "near short-term MAs, RSI neutral"
+        "near 20D support, MACD & RSI slightly negative",
+        "well above MAs, momentum pausing, mild bullish",
+        "testing short MAs, RSI softer, MACD slightly bearish"
     ]
 }
 
