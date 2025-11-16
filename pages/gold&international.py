@@ -5,7 +5,7 @@ import plotly.graph_objs as go
 # ------------------------
 # 🌍 Global Market Summary Table (Static)
 # ------------------------
-st.subheader("🌍 Global Market Summary (as of Nov 2025)")
+st.subheader("🌍 Global Market Summary (as of 14 Nov 2025)")
 
 summary_data = {
     "Asset / Index": [
@@ -17,28 +17,28 @@ summary_data = {
         "USA (Dow Jones)"
     ],
     "Current Level (Approx.)": [
-        "$4,130.87 (Nov 11, 2025)",
-        "4,073 (Nov 10, 2025)",
-        "50,986 (Nov 10, 2025)",
-        "572.82 (Nov 10, 2025)",
-        "6,840 (Oct 31, 2025)",
-        "~47,100 (Nov 5, 2025)"
+        "$4,133 (Nov 14, 2025)",     # [web:44]
+        "4,012 (Nov 14, 2025)",      # [web:57]
+        "50,377 (Nov 14, 2025)",     # [web:58]
+        "574.8 (Nov 14, 2025)",      # [web:63]
+        "6,734 (Nov 14, 2025)",      # [web:68][web:77]
+        "47,147 (Nov 14, 2025)"      # [web:69][web:78]
     ],
     "1-Week % Change": [
-        "+0.36%",
-        "-3.02%",
-        "+1.41%",
-        "+1.42%",
-        "-1.6% (approx.)",
-        "-1.2% (approx.)"
+        "+0.06%",    # Gold moved up from ~$4,109 to $4,133 [web:44]
+        "-2.72%",    # KOSPI fell from ~4,122 to 4,012 [web:57]
+        "-1.2%",     # Nikkei fell from ~51,000 to 50,377 [web:58]
+        "+0.35%",    # Stoxx 600 rose from ~572.8 to 574.8 [web:63]
+        "-0.85%",    # S&P 500 fell from ~6,792 to 6,734 [web:68][web:77]
+        "-0.47%"     # Dow Jones dropped from ~47,368 to 47,147 [web:69][web:78]
     ],
     "1-Month % Change": [
-        "-2.4% (approx.)",
-        "+13.6%",
-        "+8.8%",
-        "+0.16%",
-        "+2.27%",
-        "+2.5%"
+        "+0.6%",     # Gold [web:44]
+        "+9.8%",     # KOSPI [web:57]
+        "+6.3%",     # Nikkei [web:58]
+        "+3.7%",     # Stoxx 600 [web:63]
+        "+2.1%",     # S&P 500 [web:68]
+        "+2.4%"      # Dow Jones [web:69]
     ]
 }
 
