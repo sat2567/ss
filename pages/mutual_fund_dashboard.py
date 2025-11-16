@@ -17,6 +17,7 @@ def should_refresh():
             return True
     return False
 
+
 @st.cache_data(ttl=3600)
 def fetch_table(url, rename_map=None):
     headers = {
@@ -47,12 +48,14 @@ def fetch_table(url, rename_map=None):
         st.error(f"Error fetching data from {url}: {str(e)}")
         return None
 
+
 def scrape_category(category, category_label):
     base = "https://www.moneycontrol.com/mutual-funds/performance-tracker"
     urls = {
         "returns": f"{base}/returns/{category}.html",
         "rank": f"{base}/ranks/{category}.html"
     }
+
     with ThreadPoolExecutor() as executor:
         futures = {
             "returns": executor.submit(fetch_table, urls["returns"]),
@@ -60,21 +63,27 @@ def scrape_category(category, category_label):
         }
         df_returns = futures["returns"].result()
         df_rank = futures["rank"].result()
+
     if df_returns is None:
         return pd.DataFrame()
+
     def drop_common(df, common_cols):
         if df is not None:
             return df.drop(columns=[c for c in common_cols if c in df.columns], errors="ignore")
         return None
+
     rank_df = drop_common(df_rank, ["Category Name", "Crisil Rating"]) if df_rank is not None else None
     combined = df_returns
+
     if rank_df is not None and not rank_df.empty and 'Scheme Name' in rank_df.columns and 'Plan' in rank_df.columns:
         combined = combined.merge(rank_df, on=["Scheme Name", "Plan"], how="left")
+
     if 'Plan' in combined.columns and 'Scheme Name' in combined.columns:
         combined = combined[combined["Plan"] == "Regular"]
         combined = combined[combined["Scheme Name"].str.contains("Growth", case=False, na=False)]
     else:
         return pd.DataFrame()
+
     for col in combined.columns:
         if any(period in col for period in ['1W', '1M', '3M', '6M', '1Y', '2Y', '3Y', '5Y', '10Y', 'YTD', 'Return', 'Change']):
             combined[col] = pd.to_numeric(
@@ -83,14 +92,13 @@ def scrape_category(category, category_label):
             )
         elif combined[col].dtype == 'object':
             if combined[col].str.contains(',').any():
-                combined[col] = pd.to_numeric(
-                    combined[col].str.replace(',', ''),
-                    errors='ignore'
-                )
+                combined[col] = pd.to_numeric(combined[col].str.replace(',', ''), errors='ignore')
+
     if not combined.empty:
         combined["Category"] = category_label
         combined = combined.dropna(subset=['Scheme Name'])
         combined = combined.dropna(axis=1, how='all')
+
         def rename_return_col(col):
             col_clean = col.replace("_x", "").replace("_y", "").upper()
             mapping = {
@@ -106,12 +114,15 @@ def scrape_category(category, category_label):
                 "10Y": "Return 10Y"
             }
             return mapping.get(col_clean, col_clean)
+
         combined.columns = [rename_return_col(c) for c in combined.columns]
         return combined
+
     return pd.DataFrame()
 
 
 def main():
+
     if should_refresh():
         st.session_state['needs_refresh'] = True
 
@@ -119,7 +130,15 @@ def main():
         st.session_state['needs_refresh'] = False
         st.experimental_rerun()
 
+    # --------------------------
+    # TITLE + LAST EXTRACTED TIME
+    # --------------------------
     st.title("📊 Mutual Fund Dashboard")
+
+    if "last_extracted_at" in st.session_state:
+        st.markdown(f"### 🕒 Last Extracted: **{st.session_state['last_extracted_at']}**")
+    else:
+        st.markdown("### 🕒 Last Extracted: _Not yet extracted_")
 
     categories = {
         "All Funds": "all",
@@ -155,11 +174,23 @@ def main():
             if not df.empty:
                 df = df.dropna(axis=1, how='all')
 
+    # --------------------------
+    # STORE EXTRACTION TIME HERE
+    # --------------------------
     if df is not None and not df.empty:
+        st.session_state["last_extracted_at"] = datetime.datetime.now().strftime("%d-%m-%Y %I:%M %p")
+
         st.success(f"✅ Showing {selected_category} Funds ({len(df)} schemes)")
         st.dataframe(df, use_container_width=True, height=600, hide_index=True)
+
         csv = df.to_csv(index=False).encode('utf-8')
-        st.download_button(label="📥 Download as CSV", data=csv, file_name=f"{selected_category.lower().replace(' ', '_')}_funds.csv", mime="text/csv")
+        st.download_button(
+            label="📥 Download as CSV",
+            data=csv,
+            file_name=f"{selected_category.lower().replace(' ', '_')}_funds.csv",
+            mime="text/csv"
+        )
+
     else:
         st.error("⚠️ Could not fetch data. Please try again later.")
 
