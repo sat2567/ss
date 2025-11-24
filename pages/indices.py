@@ -15,7 +15,7 @@ TICKERS = {
     "NIFTY 50": "^NSEI",
     "NIFTY BANK": "^NSEBANK",
     "NIFTY MIDCAP 100": "^NSMIDCP", # Standard proxy for Midcap
-    "NIFTY SMALLCAP 100": "^CNXSC", # Standard proxy for Smallcap
+    "NIFTY SMALLCAP 100": "^NIFTYSM100", # Standard proxy for Smallcap
     "SENSEX": "^BSESN"
 }
 
