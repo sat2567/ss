@@ -9,7 +9,6 @@ import numpy as np
 st.set_page_config(layout="wide", page_title="Global Markets Dashboard")
 
 # --- Constants & Ticker Mapping ---
-# Selected Major Global Indices & Commodities
 GLOBAL_TICKERS = {
     "🇺🇸 S&P 500": "^GSPC",
     "🇺🇸 Nasdaq 100": "^NDX",
@@ -49,6 +48,7 @@ def fetch_global_data(ticker_dict, period="1y"):
             if len(ticker_list) == 1:
                 df = raw_data.copy()
             else:
+                # Check if ticker exists in the multi-level columns
                 if ticker not in raw_data.columns.levels[0]:
                     continue
                 df = raw_data[ticker].copy()
@@ -59,7 +59,7 @@ def fetch_global_data(ticker_dict, period="1y"):
             df = df.dropna(how='all')
             
             # CRITICAL: Forward fill is essential for global data because markets 
-            # are open at different times (e.g., Nikkei is closed when S&P is open).
+            # are open at different times.
             df = df.ffill()
             
             # Remove Timezones for uniform plotting
@@ -261,11 +261,6 @@ def main():
                 low=df_asset['Low'], close=df_asset['Close'],
                 name="OHLC"
             ), row=1, col=1)
-            
-            # 
-
-[Image of candlestick chart explanation]
-
             
             # 2. Moving Averages
             colors = ['orange', 'blue', 'purple']
