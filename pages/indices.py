@@ -2,22 +2,26 @@ import pandas as pd
 import streamlit as st
 import plotly.graph_objs as go
 summary_data = {
-    "Index": ["Nifty 50", "Nifty Midcap 100", "Nifty Smallcap 100"],
+    "Index": [
+        "Nifty 50 [finance:Nifty 50]",
+        "Nifty Midcap 100 [finance:Nifty Midcap 100]",
+        "Nifty Smallcap 100 [finance:Nifty Smallcap 100]"
+    ],
     "Price (Nov 14)": [25530, 59790, 18140],
     "PE Ratio": [22.7, 33.4, 30.8],
-    "PB Ratio": [4.19, 2.78, 2.42],  # Price/Book Ratio [web:11]
-    "Dividend Yield (%)": [1.20, 0.87, 0.68],  # Dividend Yield [web:11]
+    "PB Ratio": [4.19, 2.78, 2.42],  # Price/Book Ratio
+    "Dividend Yield (%)": [1.20, 0.87, 0.68],  # Dividend Yield
     "20D MA": ["~25,550", "~59,750", "~18,120"],
     "50D MA": ["~25,325", "~58,950", "~18,000"],
     "100D MA": ["~25,220", "~57,900", "~17,920"],
     "200D MA": ["~24,440", "~54,100", "~16,750"],
-    "Beta (vs Nifty 50)": [1.0, 1.16, 1.23],  # Index Beta [web:11]
-    "Volatility (%)": [13.5, 17.2, 19.5],  # 12-month annualized [web:11]
+    "Beta (vs Nifty 50)": [1.0, 1.16, 1.23],  # Index Beta
+    "Volatility (%)": [13.5, 17.2, 19.5],  # 12-month annualized
     "RSI": [48.8, 49.7, 47.9],
     "MACD": ["Mild Bearish", "Neutral-Bullish", "Slightly Bearish"],
-    "Stochastic Oscillator": [52, 60, 55], # Value out of 100 [web:7]
-    "Advance-Decline Ratio": [1.02, 1.08, 1.12], # Market breadth [web:5]
-    "India VIX": [13.8, 15.3, 16.9],  # Market volatility [web:5]
+    "Stochastic Oscillator": [52, 60, 55], # Value out of 100
+    "Advance-Decline Ratio": [1.02, 1.08, 1.12], # Market breadth
+    "India VIX": [13.8, 15.3, 16.9],  # Market volatility
     "Technical Position": [
         "near 20D support, MACD & RSI slightly negative",
         "well above MAs, momentum pausing, mild bullish",
