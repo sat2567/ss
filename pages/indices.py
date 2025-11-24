@@ -1,127 +1,243 @@
-import pandas as pd
 import streamlit as st
+import pandas as pd
+import yfinance as yf
 import plotly.graph_objs as go
-summary_data = {
-    "Index": [
-        "Nifty 50 [finance:Nifty 50]",
-        "Nifty Midcap 100 [finance:Nifty Midcap 100]",
-        "Nifty Smallcap 100 [finance:Nifty Smallcap 100]"
-    ],
-    "Price (Nov 14)": [25530, 59790, 18140],
-    "PE Ratio": [22.7, 33.4, 30.8],
-    "PB Ratio": [4.19, 2.78, 2.42],  # Price/Book Ratio
-    "Dividend Yield (%)": [1.20, 0.87, 0.68],  # Dividend Yield
-    "20D MA": ["~25,550", "~59,750", "~18,120"],
-    "50D MA": ["~25,325", "~58,950", "~18,000"],
-    "100D MA": ["~25,220", "~57,900", "~17,920"],
-    "200D MA": ["~24,440", "~54,100", "~16,750"],
-    "Beta (vs Nifty 50)": [1.0, 1.16, 1.23],  # Index Beta
-    "Volatility (%)": [13.5, 17.2, 19.5],  # 12-month annualized
-    "RSI": [48.8, 49.7, 47.9],
-    "MACD": ["Mild Bearish", "Neutral-Bullish", "Slightly Bearish"],
-    "Stochastic Oscillator": [52, 60, 55], # Value out of 100
-    "Advance-Decline Ratio": [1.02, 1.08, 1.12], # Market breadth
-    "India VIX": [13.8, 15.3, 16.9],  # Market volatility
-    "Technical Position": [
-        "near 20D support, MACD & RSI slightly negative",
-        "well above MAs, momentum pausing, mild bullish",
-        "testing short MAs, RSI softer, MACD slightly bearish"
-    ]
+import plotly.express as px
+from datetime import datetime, timedelta
+import numpy as np
+
+# --- Page Config ---
+st.set_page_config(layout="wide", page_title="Advanced Market Dashboard")
+
+# --- Constants & Ticker Mapping ---
+# Yahoo Finance Tickers for Indian Indices
+TICKERS = {
+    "NIFTY 50": "^NSEI",
+    "NIFTY BANK": "^NSEBANK",
+    "NIFTY MIDCAP 100": "^NSMIDCP", # Yahoo often uses ^NSMIDCP for Nifty Midcap Select or similar variants
+    "NIFTY SMALLCAP 100": "^CNXSC", # Ticker might vary, using standard smallcap index proxy
+    "SENSEX": "^BSESN"
 }
 
-st.subheader("📈 Current Technical Overview (as of Nov 7)")
-summary_df = pd.DataFrame(summary_data)
-st.dataframe(summary_df, use_container_width=True)
-# CSV data URLs
-csv_files = {
-    "NIFTY BANK": "NIFTY BANK-24-11-2024-to-24-11-2025.csv",
-    "NIFTY 50": "NIFTY 50-24-11-2024-to-24-11-2025.csv",
-    "NIFTY MIDCAP 100": "NIFTY MIDCAP 150-24-11-2024-to-24-11-2025.csv",
-    "NIFTY SMALLCAP 100": "NIFTY SMALLCAP 250-24-11-2024-to-24-11-2025.csv"
-}
+# --- Helper Functions ---
 
-def normalize_csv(df):
-    df.columns = df.columns.str.strip().str.upper()
-    date_col = next(col for col in ['DATE', 'Date', 'date'] if col in df.columns)
-    df[date_col] = pd.to_datetime(df[date_col], dayfirst=True)
-    df.set_index(date_col, inplace=True)
-    if 'VOLUME' not in df.columns and 'SHARES TRADED' in df.columns:
-        df.rename(columns={'SHARES TRADED': 'VOLUME'}, inplace=True)
-    if 'CLOSE' not in df.columns:
-        close_candidates = [c for c in df.columns if 'CLOSE' in c]
-        if close_candidates:
-            df.rename(columns={close_candidates[0]: 'CLOSE'}, inplace=True)
-    df['CLOSE'] = pd.to_numeric(df['CLOSE'], errors='coerce')
-    return df[['CLOSE']].sort_index()
+@st.cache_data(ttl=3600) # Cache data for 1 hour
+def fetch_data(period="2y"):
+    """
+    Fetches OHLC data for all tickers from Yahoo Finance.
+    Returns a dictionary of DataFrames.
+    """
+    data_dict = {}
+    ticker_list = list(TICKERS.values())
+    
+    # Bulk download is faster
+    raw_data = yf.download(ticker_list, period=period, group_by='ticker', auto_adjust=True)
+    
+    for name, ticker in TICKERS.items():
+        try:
+            # Extract specific ticker data
+            df = raw_data[ticker].copy()
+            if not df.empty:
+                # Drop rows with NaN (holidays/weekends)
+                df.dropna(inplace=True)
+                data_dict[name] = df
+        except KeyError:
+            st.error(f"Could not fetch data for {name} ({ticker})")
+            
+    return data_dict
 
-# Load and normalize CSV data
-csv_data = {name: normalize_csv(pd.read_csv(url)) for name, url in csv_files.items()}
+def calculate_rsi(series, period=14):
+    """Calculates RSI manually to avoid heavy dependencies like pandas-ta."""
+    delta = series.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    rs = gain / loss
+    return 100 - (100 / (1 + rs))
 
-st.title('Compare Indices: Closing Prices & Moving Averages')
+def calculate_drawdown(series):
+    """Calculates percentage drawdown from peak."""
+    rolling_max = series.cummax()
+    drawdown = (series / rolling_max) - 1
+    return drawdown * 100
 
-# Find common date range
-all_dates = pd.concat([df.index.to_series() for df in csv_data.values()])
-min_date, max_date = all_dates.min(), all_dates.max()
+# --- Main App Layout ---
 
-start_date, end_date = st.date_input(
-    'Select Date Range',
-    value=[min_date, max_date],
-    min_value=min_date,
-    max_value=max_date,
-    key='date_range'
-)
+def main():
+    st.title("📈 Indian Market Dashboard: Live Analysis")
+    st.markdown("Real-time data fetched via Yahoo Finance | Comparison, Risk & Technicals")
 
-# Filter data by selected range
-filtered_data = {name: df.loc[start_date:end_date] for name, df in csv_data.items()}
+    # 1. Sidebar Controls
+    with st.sidebar:
+        st.header("Settings")
+        refresh = st.button("🔄 Refresh Data")
+        
+        # Date Range Logic
+        period_options = ["1mo", "3mo", "6mo", "1y", "2y", "5y", "max"]
+        selected_period = st.selectbox("Data Lookback Period", period_options, index=4)
+        
+        st.subheader("Chart Settings")
+        normalize = st.checkbox("Normalize Prices (Start=100)", value=True)
+        ma_windows = st.multiselect("Moving Averages", [20, 50, 100, 200], default=[50, 200])
 
-# Select indices and MAs
-indices = st.multiselect('Select Indices to Plot', options=list(filtered_data.keys()), default=list(filtered_data.keys()))
-ma_windows = st.multiselect('Select Moving Average Windows (days)', options=[10, 20, 50, 100, 200], default=[50, 200])
+    # 2. Load Data
+    if refresh:
+        st.cache_data.clear()
+    
+    with st.spinner("Fetching market data..."):
+        market_data = fetch_data(period=selected_period)
 
-# Normalization option
-normalize_option = st.checkbox('Normalize Prices (Start at 100)', value=True)
+    if not market_data:
+        st.error("No data available. Please check your internet connection.")
+        return
 
-# Create a combined chart
-fig = go.Figure()
+    # 3. Dynamic KPI Cards
+    st.subheader("Market Snapshot")
+    cols = st.columns(len(market_data))
+    
+    for i, (name, df) in enumerate(market_data.items()):
+        current_price = df['Close'].iloc[-1]
+        prev_price = df['Close'].iloc[-2]
+        daily_change = current_price - prev_price
+        daily_pct = (daily_change / prev_price) * 100
+        
+        cols[i].metric(
+            label=name,
+            value=f"{current_price:,.0f}",
+            delta=f"{daily_pct:.2f}%"
+        )
 
-for name in indices:
-    df = filtered_data[name].copy()
+    # 4. Tabs for Analysis
+    tab_compare, tab_risk, tab_deep_dive = st.tabs(["📊 Index Comparison", "📉 Risk & Drawdown", "🕯️ Technical Deep Dive"])
 
-    # Normalize if selected
-    if normalize_option:
-        base = df['CLOSE'].iloc[0]
-        df['CLOSE_NORM'] = (df['CLOSE'] / base) * 100
-        plot_col = 'CLOSE_NORM'
-        yaxis_label = 'Normalized Price (Start = 100)'
-    else:
-        plot_col = 'CLOSE'
-        yaxis_label = 'Price'
+    # --- TAB 1: COMPARISON & CORRELATION ---
+    with tab_compare:
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            st.subheader("Price Performance Comparison")
+            indices_to_plot = st.multiselect("Select Indices", list(market_data.keys()), default=list(market_data.keys()))
+            
+            fig_compare = go.Figure()
+            for name in indices_to_plot:
+                df = market_data[name]
+                y_data = df['Close']
+                
+                if normalize:
+                    # Normalize to 100 at the start
+                    start_val = y_data.iloc[0]
+                    y_data = (y_data / start_val) * 100
+                    title_y = "Normalized Price (Start=100)"
+                else:
+                    title_y = "Price"
+                    
+                fig_compare.add_trace(go.Scatter(x=df.index, y=y_data, mode='lines', name=name))
+            
+            fig_compare.update_layout(yaxis_title=title_y, height=500, hovermode="x unified")
+            st.plotly_chart(fig_compare, use_container_width=True)
 
-    # Add main close line
-    fig.add_trace(go.Scatter(
-        x=df.index, y=df[plot_col],
-        mode='lines', name=f'{name} (Close)',
-        line=dict(width=2)
-    ))
+        with col2:
+            st.subheader("Correlation Matrix")
+            st.caption("Based on daily returns over selected period")
+            
+            # Prepare Correlation Data
+            close_prices = pd.DataFrame({name: data['Close'] for name, data in market_data.items()})
+            corr_matrix = close_prices.pct_change().corr()
+            
+            fig_corr = px.imshow(
+                corr_matrix, 
+                text_auto=".2f", 
+                color_continuous_scale='RdBu_r', 
+                zmin=-1, zmax=1,
+                aspect="auto"
+            )
+            st.plotly_chart(fig_corr, use_container_width=True)
 
-    # Add moving averages
-    for window in ma_windows:
-        ma_label = f'{name} MA{window}'
-        df[ma_label] = df[plot_col].rolling(window=window).mean()
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df[ma_label],
-            mode='lines', name=f'{name} {window}-Day MA',
-            line=dict(dash='dash')
-        ))
+    # --- TAB 2: RISK ANALYSIS ---
+    with tab_risk:
+        st.subheader("Underwater Plot (Drawdowns)")
+        st.markdown("Shows how far each index has fallen from its all-time high within the selected period.")
+        
+        fig_dd = go.Figure()
+        for name in indices_to_plot:
+            df = market_data[name]
+            dd = calculate_drawdown(df['Close'])
+            fig_dd.add_trace(go.Scatter(x=dd.index, y=dd, name=name, fill='tozeroy'))
+            
+        fig_dd.update_layout(yaxis_title="Drawdown (%)", height=400, hovermode="x unified")
+        st.plotly_chart(fig_dd, use_container_width=True)
+        
+        # Volatility Table
+        st.subheader("Volatility Metrics (Annualized)")
+        vol_data = []
+        for name in indices_to_plot:
+            df = market_data[name]
+            returns = df['Close'].pct_change().dropna()
+            # Annualized Volatility = Daily Std Dev * Sqrt(252)
+            ann_vol = returns.std() * np.sqrt(252) * 100
+            max_dd = calculate_drawdown(df['Close']).min()
+            
+            vol_data.append({
+                "Index": name, 
+                "Annualized Volatility": f"{ann_vol:.2f}%",
+                "Max Drawdown (Period)": f"{max_dd:.2f}%"
+            })
+            
+        st.dataframe(pd.DataFrame(vol_data), use_container_width=True)
 
-# Layout
-fig.update_layout(
-    title="Indices Comparison Chart",
-    xaxis_title='Date',
-    yaxis_title=yaxis_label,
-    hovermode='x unified',
-    height=600,
-    legend=dict(orientation='h', y=-0.2)
-)
+    # --- TAB 3: DEEP DIVE ---
+    with tab_deep_dive:
+        st.subheader("Technical Deep Dive")
+        
+        col_dd_1, col_dd_2 = st.columns([1, 3])
+        
+        with col_dd_1:
+            selected_asset = st.selectbox("Select Asset to Analyze", list(market_data.keys()))
+            df_asset = market_data[selected_asset].copy()
+            
+            # Calculate Indicators
+            df_asset['RSI'] = calculate_rsi(df_asset['Close'])
+            for ma in ma_windows:
+                df_asset[f'MA_{ma}'] = df_asset['Close'].rolling(window=ma).mean()
+                
+            st.dataframe(df_asset[['Close', 'RSI']].tail(10).sort_index(ascending=False), use_container_width=True)
 
-st.plotly_chart(fig, use_container_width=True)
+        with col_dd_2:
+            # Create Subplots: Row 1 = Price/MA, Row 2 = RSI
+            from plotly.subplots import make_subplots
+            
+            fig_tech = make_subplots(rows=2, cols=1, shared_xaxes=True, 
+                                     vertical_spacing=0.05, row_heights=[0.7, 0.3])
+            
+            # Candlestick
+            fig_tech.add_trace(go.Candlestick(
+                x=df_asset.index,
+                open=df_asset['Open'], high=df_asset['High'],
+                low=df_asset['Low'], close=df_asset['Close'],
+                name="OHLC"
+            ), row=1, col=1)
+            
+            # Moving Averages
+            colors = ['orange', 'blue', 'purple', 'black']
+            for i, ma in enumerate(ma_windows):
+                if f'MA_{ma}' in df_asset.columns:
+                    fig_tech.add_trace(go.Scatter(
+                        x=df_asset.index, y=df_asset[f'MA_{ma}'], 
+                        mode='lines', name=f'{ma} DMA',
+                        line=dict(width=1, color=colors[i % len(colors)])
+                    ), row=1, col=1)
+            
+            # RSI
+            fig_tech.add_trace(go.Scatter(
+                x=df_asset.index, y=df_asset['RSI'], 
+                name='RSI (14)', line=dict(color='purple')
+            ), row=2, col=1)
+            
+            # RSI Levels
+            fig_tech.add_hline(y=70, line_dash="dash", line_color="red", row=2, col=1)
+            fig_tech.add_hline(y=30, line_dash="dash", line_color="green", row=2, col=1)
+            
+            fig_tech.update_layout(height=600, title=f"{selected_asset} Technical Chart", xaxis_rangeslider_visible=False)
+            st.plotly_chart(fig_tech, use_container_width=True)
+
+if __name__ == "__main__":
+    main()
