@@ -139,7 +139,7 @@ def main():
     # 3. KPI Cards (Indices Only)
     st.subheader("Market Snapshot")
     
-    kpi_indices = ["NIFTY 50", "NIFTY BANK", "NIFTY MIDCAP 100", "SMALLCAP (BSE)", "INDIA VIX"]
+    kpi_indices = ["NIFTY 50", "NIFTY BANK", "NIFTY MIDCAP 100", "SMALLCAP (ETF)", "INDIA VIX"]
     cols = st.columns(len(kpi_indices))
     
     for i, name in enumerate(kpi_indices):
