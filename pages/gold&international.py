@@ -1,187 +1,299 @@
-import yfinance as yf
-import pandas as pd
 import streamlit as st
+import pandas as pd
+import yfinance as yf
 import plotly.graph_objs as go
-# ------------------------
-# 🌍 Global Market Summary Table (Static)
-# ------------------------
-st.subheader("🌍 Global Market Summary (as of 14 Nov 2025)")
+import plotly.express as px
+import numpy as np
 
-summary_data = {
-    "Asset / Index": [
-        "Gold (USD per troy oz)",
-        "South Korea (KOSPI)",
-        "Japan (Nikkei 225)",
-        "Europe (Stoxx 600)",
-        "USA (S&P 500)",
-        "USA (Dow Jones)"
-    ],
-    "Current Level (Approx.)": [
-        "$4,133 (Nov 14, 2025)",     # [web:44]
-        "4,012 (Nov 14, 2025)",      # [web:57]
-        "50,377 (Nov 14, 2025)",     # [web:58]
-        "574.8 (Nov 14, 2025)",      # [web:63]
-        "6,734 (Nov 14, 2025)",      # [web:68][web:77]
-        "47,147 (Nov 14, 2025)"      # [web:69][web:78]
-    ],
-    "1-Week % Change": [
-        "+0.06%",    # Gold moved up from ~$4,109 to $4,133 [web:44]
-        "-2.72%",    # KOSPI fell from ~4,122 to 4,012 [web:57]
-        "-1.2%",     # Nikkei fell from ~51,000 to 50,377 [web:58]
-        "+0.35%",    # Stoxx 600 rose from ~572.8 to 574.8 [web:63]
-        "-0.85%",    # S&P 500 fell from ~6,792 to 6,734 [web:68][web:77]
-        "-0.47%"     # Dow Jones dropped from ~47,368 to 47,147 [web:69][web:78]
-    ],
-    "1-Month % Change": [
-        "+0.6%",     # Gold [web:44]
-        "+9.8%",     # KOSPI [web:57]
-        "+6.3%",     # Nikkei [web:58]
-        "+3.7%",     # Stoxx 600 [web:63]
-        "+2.1%",     # S&P 500 [web:68]
-        "+2.4%"      # Dow Jones [web:69]
-    ]
+# --- Page Config ---
+st.set_page_config(layout="wide", page_title="Global Markets Dashboard")
+
+# --- Constants & Ticker Mapping ---
+# Selected Major Global Indices & Commodities
+GLOBAL_TICKERS = {
+    "🇺🇸 S&P 500": "^GSPC",
+    "🇺🇸 Nasdaq 100": "^NDX",
+    "🇺🇸 Dow Jones": "^DJI",
+    "🇬🇧 FTSE 100 (UK)": "^FTSE",
+    "🇩🇪 DAX (Germany)": "^GDAXI",
+    "🇫🇷 CAC 40 (France)": "^FCHI",
+    "🇯🇵 Nikkei 225": "^N225",
+    "🇰🇷 KOSPI": "^KS11",
+    "🇭🇰 Hang Seng": "^HSI",
+    "🇨🇳 Shanghai Comp": "000001.SS",
+    "🥇 Gold (Futures)": "GC=F",
+    "🛢️ Crude Oil": "CL=F",
+    "🥈 Silver": "SI=F"
 }
 
-summary_df = pd.DataFrame(summary_data)
+# --- Helper Functions ---
 
-st.dataframe(summary_df, use_container_width=True)
+@st.cache_data(ttl=3600)
+def fetch_global_data(ticker_dict, period="1y"):
+    """
+    Fetches data for global tickers with robust error handling for different timezones.
+    """
+    data_dict = {}
+    ticker_list = list(ticker_dict.values())
+    
+    try:
+        # Bulk download
+        raw_data = yf.download(ticker_list, period=period, group_by='ticker', auto_adjust=True, threads=True)
+    except Exception as e:
+        st.error(f"API Error: {e}")
+        return {}
+    
+    for name, ticker in ticker_dict.items():
+        try:
+            # Handle single vs multi-ticker structure
+            if len(ticker_list) == 1:
+                df = raw_data.copy()
+            else:
+                if ticker not in raw_data.columns.levels[0]:
+                    continue
+                df = raw_data[ticker].copy()
+            
+            if df.empty: continue
 
-# ------------------------
-# 🌍 Major Global Indices
-# ------------------------
+            # Basic Cleaning
+            df = df.dropna(how='all')
+            
+            # CRITICAL: Forward fill is essential for global data because markets 
+            # are open at different times (e.g., Nikkei is closed when S&P is open).
+            df = df.ffill()
+            
+            # Remove Timezones for uniform plotting
+            if df.index.tz is not None:
+                df.index = df.index.tz_localize(None)
+            
+            data_dict[name] = df
+        except KeyError:
+            continue
+            
+    return data_dict
 
-# ------------------------
-# 🌍 Major Global Indices
-# ------------------------
-indices = {
-    "Gold (COMEX Futures)": "GC=F",
-    "S&P 500 (US)": "^GSPC",
-    "Dow Jones (US)": "^DJI",
-    "Nasdaq (US)": "^IXIC",
-    "FTSE 100 (UK)": "^FTSE",
-    "DAX (Germany)": "^GDAXI",
-    "CAC 40 (France)": "^FCHI",
-    "Nikkei 225 (Japan)": "^N225",
-    "KOSPI (South Korea)": "^KS11",
-    "Hang Seng (Hong Kong)": "^HSI",
-    "Shanghai Composite (China)": "000001.SS",
-    "Shenzhen Component (China)": "399001.SZ"
-}
+def calculate_rsi(series, period=14):
+    delta = series.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    rs = gain / loss
+    return 100 - (100 / (1 + rs))
 
-# ------------------------
-# 🕒 Streamlit App Layout
-# ------------------------
-st.title("📈 Global Indices Comparison Dashboard")
+# --- Main Application ---
 
-# Time period selection
-period_options = {
-    "Last 30 Days": ("30d", "1d"),
-    "Last 3 Months": ("3mo", "1d"),
-    "Last 1 Year": ("1y", "1wk"),
-    "Last 5 Years": ("5y", "1wk"),
-}
-selected_period = st.selectbox("Select Time Range", list(period_options.keys()))
-period, interval = period_options[selected_period]
+def main():
+    # 1. Sidebar Controls
+    with st.sidebar:
+        st.header("⚙️ Dashboard Settings")
+        refresh = st.button("🔄 Refresh Data")
+        
+        period_options = ["1mo", "3mo", "6mo", "1y", "2y", "5y"]
+        selected_period = st.selectbox("Lookback Period", period_options, index=3)
+        
+        st.subheader("Chart Options")
+        normalize = st.checkbox("Normalize (Start=100)", value=True, help="Rebases all indices to 100 at the start date for easy comparison.")
+        ma_windows = st.multiselect("Moving Averages", [50, 100, 200], default=[50, 200])
 
-# ------------------------
-# 📥 Download Data
-# ------------------------
-st.write("⏳ Fetching data...")
-data = {}
+    if refresh:
+        st.cache_data.clear()
 
-for name, symbol in indices.items():
-    df = yf.download(symbol, period=period, interval=interval, auto_adjust=True, progress=False)
-    if not df.empty:
-        df = df[["Close"]].rename(columns={"Close": name})
-        data[name] = df
-    else:
-        st.warning(f"⚠️ No data for {name}")
+    # 2. Fetch Data
+    with st.spinner(f"Fetching global market data ({selected_period})..."):
+        market_data = fetch_global_data(GLOBAL_TICKERS, period=selected_period)
 
-if not data:
-    st.error("❌ No data downloaded. Please check your connection or tickers.")
-    st.stop()
+    if not market_data:
+        st.error("Could not fetch data. Please check your internet connection.")
+        return
 
-# Combine all data
-df_all = pd.concat(data.values(), axis=1)
-df_all.columns = list(data.keys())  # Ensure clean names
-df_all.dropna(how='all', inplace=True)
+    st.title("🌍 Global Markets Overview")
+    st.markdown(f"**Status:** Live Analysis | **Period:** {selected_period}")
 
-# ------------------------
-# 🔍 Select Which Indices to Display
-# ------------------------
-selected_indices = st.multiselect(
-    "Select Indices to Display",
-    options=list(df_all.columns),
-    default=list(df_all.columns)
-)
+    # 3. Dynamic KPI Cards
+    st.subheader("Market Snapshot (Latest Close)")
+    
+    # Select top key indices for the snapshot
+    key_indices = ["🇺🇸 S&P 500", "🇯🇵 Nikkei 225", "🇬🇧 FTSE 100", "🥇 Gold (Futures)", "🛢️ Crude Oil"]
+    
+    cols = st.columns(len(key_indices))
+    for i, name in enumerate(key_indices):
+        if name in market_data:
+            df = market_data[name]
+            if not df.empty:
+                current_price = df['Close'].iloc[-1]
+                
+                # Calculate change
+                if len(df) >= 2:
+                    prev_price = df['Close'].iloc[-2]
+                    daily_change = current_price - prev_price
+                    daily_pct = (daily_change / prev_price) * 100
+                    delta_str = f"{daily_pct:.2f}%"
+                else:
+                    delta_str = "N/A"
+                
+                cols[i].metric(label=name, value=f"{current_price:,.2f}", delta=delta_str)
 
-df_filtered = df_all[selected_indices].copy()
+    # 4. Analysis Tabs
+    tab_compare, tab_perf, tab_deep = st.tabs(["📊 Trend Comparison", "🏆 Performance Ranking", "🕯️ Technical Deep Dive"])
 
-# ------------------------
-# ⚠️ SAFE NORMALIZATION BLOCK
-# ------------------------
-normalize = st.checkbox("Normalize Prices (Start = 100)", value=False)
+    # --- TAB 1: TREND COMPARISON ---
+    with tab_compare:
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            st.subheader("Price History")
+            selected_comparison = st.multiselect(
+                "Select Assets to Compare", 
+                list(market_data.keys()), 
+                default=["🇺🇸 S&P 500", "🇯🇵 Nikkei 225", "🥇 Gold (Futures)"]
+            )
+            
+            fig_comp = go.Figure()
+            for name in selected_comparison:
+                df = market_data[name]
+                y_data = df['Close']
+                
+                if normalize:
+                    start_val = y_data.iloc[0]
+                    if start_val == 0: start_val = 1 # Avoid div by zero
+                    y_data = (y_data / start_val) * 100
+                    y_title = "Normalized (Base=100)"
+                else:
+                    y_title = "Price"
+                
+                fig_comp.add_trace(go.Scatter(x=df.index, y=y_data, name=name))
+            
+            fig_comp.update_layout(yaxis_title=y_title, height=500, hovermode="x unified")
+            st.plotly_chart(fig_comp, use_container_width=True)
 
-if normalize:
-    missing_start = []
+        with col2:
+            st.markdown("**Correlation Matrix**")
+            st.caption("How closely do these markets move together?")
+            
+            if len(selected_comparison) > 1:
+                # Build correlation DF
+                price_dict = {name: market_data[name]['Close'] for name in selected_comparison}
+                close_df = pd.DataFrame(price_dict)
+                # Drop NaN created by non-overlapping holidays
+                corr_matrix = close_df.pct_change().corr()
+                
+                fig_corr = px.imshow(
+                    corr_matrix, 
+                    text_auto=".2f", 
+                    color_continuous_scale='RdBu', 
+                    zmin=-1, zmax=1, aspect="auto"
+                )
+                fig_corr.update_layout(height=500)
+                st.plotly_chart(fig_corr, use_container_width=True)
 
-    for col in df_filtered.columns:
-        first_valid = df_filtered[col].first_valid_index()
-
-        if first_valid is None or pd.isna(df_filtered[col].loc[first_valid]):
-            missing_start.append(col)
-
-    if missing_start:
-        st.warning(
-            f"⚠️ Cannot normalize because these indices don't have valid starting values: "
-            f"{', '.join(missing_start)}"
+    # --- TAB 2: PERFORMANCE RANKING ---
+    with tab_perf:
+        st.subheader(f"Asset Returns over {selected_period}")
+        
+        returns_dict = {}
+        for name, df in market_data.items():
+            if not df.empty:
+                start = df['Close'].iloc[0]
+                end = df['Close'].iloc[-1]
+                ret = ((end - start) / start) * 100
+                returns_dict[name] = ret
+        
+        df_ret = pd.DataFrame(list(returns_dict.items()), columns=['Asset', 'Return'])
+        df_ret = df_ret.sort_values(by='Return', ascending=True)
+        df_ret['Color'] = df_ret['Return'].apply(lambda x: '#2ecc71' if x >= 0 else '#e74c3c')
+        
+        fig_bar = go.Figure()
+        fig_bar.add_trace(go.Bar(
+            y=df_ret['Asset'],
+            x=df_ret['Return'],
+            orientation='h',
+            marker=dict(color=df_ret['Color']),
+            text=df_ret['Return'].apply(lambda x: f"{x:.2f}%"),
+            textposition='auto'
+        ))
+        
+        fig_bar.update_layout(
+            title="Winners vs. Losers", 
+            xaxis_title="Total Return (%)", 
+            height=600
         )
-    else:
-        df_normalized = df_filtered.copy()
-        for col in df_normalized.columns:
-            fv = df_normalized[col].first_valid_index()
-            df_normalized[col] = df_normalized[col] / df_normalized[col].loc[fv] * 100
+        st.plotly_chart(fig_bar, use_container_width=True)
 
-        df_filtered = df_normalized
-        st.success("✅ Normalization applied successfully!")
+    # --- TAB 3: TECHNICAL DEEP DIVE ---
+    with tab_deep:
+        st.subheader("Technical Analysis")
+        col_dd1, col_dd2 = st.columns([1, 3])
+        
+        with col_dd1:
+            selected_asset = st.selectbox("Analyze Asset", list(market_data.keys()))
+            df_asset = market_data[selected_asset].copy()
+            
+            # Calc Indicators
+            df_asset['RSI'] = calculate_rsi(df_asset['Close'])
+            for ma in ma_windows:
+                df_asset[f'MA_{ma}'] = df_asset['Close'].rolling(window=ma).mean()
+            
+            last_close = df_asset['Close'].iloc[-1]
+            last_rsi = df_asset['RSI'].iloc[-1]
+            
+            st.metric("Latest Price", f"{last_close:,.2f}")
+            st.metric("RSI (14-Day)", f"{last_rsi:.2f}")
+            
+            if last_rsi > 70:
+                st.warning("⚠️ Overbought Zone")
+            elif last_rsi < 30:
+                st.success("✅ Oversold Zone")
+            else:
+                st.info("ℹ️ Neutral Zone")
 
-# ------------------------
-# 💾 CSV Download
-# ------------------------
-csv_data = df_filtered.to_csv().encode("utf-8")
-st.download_button(
-    label=f"📥 Download {selected_period} data as CSV",
-    data=csv_data,
-    file_name=f"indices_{selected_period.replace(' ', '_').lower()}.csv",
-    mime="text/csv",
-)
+            st.write("Recent Data:")
+            st.dataframe(df_asset[['Close', 'RSI']].tail(10).sort_index(ascending=False), use_container_width=True)
 
-# ------------------------
-# 📊 Interactive Plotly Chart
-# ------------------------
-fig = go.Figure()
+        with col_dd2:
+            # Candlestick Chart with Subplots
+            from plotly.subplots import make_subplots
+            
+            fig_tech = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.7, 0.3], vertical_spacing=0.05)
+            
+            # 1. Candlestick
+            fig_tech.add_trace(go.Candlestick(
+                x=df_asset.index,
+                open=df_asset['Open'], high=df_asset['High'],
+                low=df_asset['Low'], close=df_asset['Close'],
+                name="OHLC"
+            ), row=1, col=1)
+            
+            # 
 
-for col in df_filtered.columns:
-    fig.add_trace(go.Scatter(
-        x=df_filtered.index,
-        y=df_filtered[col],
-        mode='lines',
-        name=col,
-        hovertemplate=(
-            f"<b>{col}</b><br>"
-            "Date: %{x|%Y-%m-%d}<br>"
-            "Price: %{y:.2f}<extra></extra>"
-        )
-    ))
+[Image of candlestick chart explanation]
 
-fig.update_layout(
-    title=f"Global Indices ({selected_period})",
-    xaxis_title="Date",
-    yaxis_title="Normalized Price (Start=100)" if normalize else "Price",
-    hovermode="x unified",
-    height=650,
-    template="plotly_white",
-    legend=dict(orientation="h", y=-0.2)
-)
+            
+            # 2. Moving Averages
+            colors = ['orange', 'blue', 'purple']
+            for i, ma in enumerate(ma_windows):
+                if f'MA_{ma}' in df_asset.columns:
+                    fig_tech.add_trace(go.Scatter(
+                        x=df_asset.index, y=df_asset[f'MA_{ma}'],
+                        mode='lines', name=f'{ma}-Day MA',
+                        line=dict(width=1.5, color=colors[i % len(colors)])
+                    ), row=1, col=1)
 
-st.plotly_chart(fig, use_container_width=True)
+            # 3. RSI
+            fig_tech.add_trace(go.Scatter(
+                x=df_asset.index, y=df_asset['RSI'],
+                name="RSI", line=dict(color='purple', width=1)
+            ), row=2, col=1)
+            
+            # RSI Bands
+            fig_tech.add_hline(y=70, line_dash="dot", line_color="red", row=2, col=1)
+            fig_tech.add_hline(y=30, line_dash="dot", line_color="green", row=2, col=1)
+            
+            fig_tech.update_layout(
+                height=600, 
+                title=f"{selected_asset} Technicals",
+                xaxis_rangeslider_visible=False,
+                showlegend=True
+            )
+            st.plotly_chart(fig_tech, use_container_width=True)
+
+if __name__ == "__main__":
+    main()
