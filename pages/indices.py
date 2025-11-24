@@ -16,9 +16,9 @@ INDEX_TICKERS = {
     "NIFTY 50": "^NSEI",
     "NIFTY BANK": "^NSEBANK",
     "NIFTY MIDCAP 100": "^NSMIDCP",
-    "SMALLCAP (BSE)": "SMALLCAP.NS", 
+    "SMALLCAP (ETF)": "SMALLCAP.NS", 
     "SENSEX": "^BSESN",
-   # "INDIA VIX": "^INDIAVIX"
+    "INDIA VIX": "^INDIAVIX"
 }
 
 # 2. Sectoral Indices
