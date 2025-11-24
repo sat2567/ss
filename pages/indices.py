@@ -3,19 +3,19 @@ import pandas as pd
 import yfinance as yf
 import plotly.graph_objs as go
 import plotly.express as px
-from datetime import datetime, timedelta
+from datetime import datetime
 import numpy as np
 
 # --- Page Config ---
 st.set_page_config(layout="wide", page_title="Advanced Market Dashboard")
 
 # --- Constants & Ticker Mapping ---
-# Yahoo Finance Tickers for Indian Indices
+# Yahoo Finance Tickers for Indian Indices (using standard proxies)
 TICKERS = {
     "NIFTY 50": "^NSEI",
     "NIFTY BANK": "^NSEBANK",
-    "NIFTY MIDCAP 100": "^NSMIDCP", # Yahoo often uses ^NSMIDCP for Nifty Midcap Select or similar variants
-    "NIFTY SMALLCAP 100": "^CNXSC", # Ticker might vary, using standard smallcap index proxy
+    "NIFTY MIDCAP 100": "^NSMIDCP", # Standard proxy for Midcap
+    "NIFTY SMALLCAP 100": "^CNXSC", # Standard proxy for Smallcap
     "SENSEX": "^BSESN"
 }
 
@@ -36,22 +36,34 @@ def fetch_data(period="2y"):
     for name, ticker in TICKERS.items():
         try:
             # Extract specific ticker data
-            df = raw_data[ticker].copy()
+            # Handle single-ticker download result structure
+            if len(ticker_list) == 1:
+                df = raw_data.copy()
+            else:
+                df = raw_data[ticker].copy()
+                
             if not df.empty:
                 # Drop rows with NaN (holidays/weekends)
                 df.dropna(inplace=True)
+                # Ensure the index is a plain datetime index (no timezone issues)
+                if df.index.tz is not None:
+                    df.index = df.index.tz_localize(None)
                 data_dict[name] = df
         except KeyError:
-            st.error(f"Could not fetch data for {name} ({ticker})")
+            # Handle cases where a specific ticker might fail in a multi-ticker download
+            continue
             
     return data_dict
 
 def calculate_rsi(series, period=14):
-    """Calculates RSI manually to avoid heavy dependencies like pandas-ta."""
+    """Calculates RSI."""
     delta = series.diff()
+    # Separate gains and losses
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    # Relative Strength (RS)
     rs = gain / loss
+    # Relative Strength Index (RSI)
     return 100 - (100 / (1 + rs))
 
 def calculate_drawdown(series):
@@ -60,16 +72,13 @@ def calculate_drawdown(series):
     drawdown = (series / rolling_max) - 1
     return drawdown * 100
 
-# --- Main App Layout ---
+# --- Main App Logic ---
 
 def main():
-    st.title("📈 Indian Market Dashboard: Live Analysis")
-    st.markdown("Real-time data fetched via Yahoo Finance | Comparison, Risk & Technicals")
-
     # 1. Sidebar Controls
     with st.sidebar:
         st.header("Settings")
-        refresh = st.button("🔄 Refresh Data")
+        refresh = st.button("🔄 Refresh Data", help="Clears cache and fetches new data.")
         
         # Date Range Logic
         period_options = ["1mo", "3mo", "6mo", "1y", "2y", "5y", "max"]
@@ -77,60 +86,91 @@ def main():
         
         st.subheader("Chart Settings")
         normalize = st.checkbox("Normalize Prices (Start=100)", value=True)
-        ma_windows = st.multiselect("Moving Averages", [20, 50, 100, 200], default=[50, 200])
+        ma_windows = st.multiselect("Moving Averages (Days)", [20, 50, 100, 200], default=[50, 200])
 
     # 2. Load Data
     if refresh:
         st.cache_data.clear()
     
-    with st.spinner("Fetching market data..."):
+    with st.spinner(f"Fetching {selected_period} of market data..."):
         market_data = fetch_data(period=selected_period)
 
     if not market_data:
-        st.error("No data available. Please check your internet connection.")
+        st.error("Failed to fetch data for any ticker. Please check API connectivity or refresh the page.")
         return
 
-    # 3. Dynamic KPI Cards
+    st.title("📈 Indian Market Dashboard: Live Analysis")
+
+    # 3. Dynamic KPI Cards (The corrected section)
     st.subheader("Market Snapshot")
     cols = st.columns(len(market_data))
     
     for i, (name, df) in enumerate(market_data.items()):
-        current_price = df['Close'].iloc[-1]
-        prev_price = df['Close'].iloc[-2]
-        daily_change = current_price - prev_price
-        daily_pct = (daily_change / prev_price) * 100
-        
+        # Defensive check: ensure enough data exists
+        if len(df) < 1:
+            current_price = 0
+            delta_str = "No Data"
+        else:
+            current_price = df['Close'].iloc[-1]
+            
+            if len(df) >= 2:
+                # This is the line that caused the error, now safely inside an IF block
+                prev_price = df['Close'].iloc[-2]
+                daily_change = current_price - prev_price
+                daily_pct = (daily_change / prev_price) * 100
+                delta_str = f"{daily_pct:.2f}%"
+            else:
+                # Only 1 day of data available (cannot calculate change)
+                delta_str = "N/A"
+
         cols[i].metric(
             label=name,
             value=f"{current_price:,.0f}",
-            delta=f"{daily_pct:.2f}%"
+            delta=delta_str
         )
 
     # 4. Tabs for Analysis
-    tab_compare, tab_risk, tab_deep_dive = st.tabs(["📊 Index Comparison", "📉 Risk & Drawdown", "🕯️ Technical Deep Dive"])
+    tab_compare, tab_risk, tab_deep_dive = st.tabs(["📊 Index Comparison", "📉 Risk & Volatility", "🕯️ Technical Deep Dive"])
+    
+    # Get the list of indices that successfully loaded data
+    available_indices = list(market_data.keys())
 
     # --- TAB 1: COMPARISON & CORRELATION ---
     with tab_compare:
+        
+        # Multiselect for comparison chart (put here so it doesn't affect the KPI cards)
+        indices_to_plot = st.multiselect("Select Indices for Comparison", available_indices, default=available_indices)
+        
         col1, col2 = st.columns([2, 1])
         
         with col1:
             st.subheader("Price Performance Comparison")
-            indices_to_plot = st.multiselect("Select Indices", list(market_data.keys()), default=list(market_data.keys()))
             
             fig_compare = go.Figure()
+            
             for name in indices_to_plot:
-                df = market_data[name]
+                df = market_data[name].copy()
                 y_data = df['Close']
                 
                 if normalize:
-                    # Normalize to 100 at the start
                     start_val = y_data.iloc[0]
                     y_data = (y_data / start_val) * 100
                     title_y = "Normalized Price (Start=100)"
                 else:
                     title_y = "Price"
                     
+                # Add main close line
                 fig_compare.add_trace(go.Scatter(x=df.index, y=y_data, mode='lines', name=name))
+                
+                # Add moving averages
+                for window in ma_windows:
+                    ma_label = f'{name} MA{window}'
+                    df[ma_label] = y_data.rolling(window=window).mean()
+                    fig_compare.add_trace(go.Scatter(
+                        x=df.index, y=df[ma_label], 
+                        mode='lines', name=f'{name} {window} DMA',
+                        line=dict(dash='dash', width=1)
+                    ))
             
             fig_compare.update_layout(yaxis_title=title_y, height=500, hovermode="x unified")
             st.plotly_chart(fig_compare, use_container_width=True)
@@ -152,12 +192,12 @@ def main():
             )
             st.plotly_chart(fig_corr, use_container_width=True)
 
-    # --- TAB 2: RISK ANALYSIS ---
+    # --- TAB 2: RISK & VOLATILITY ---
     with tab_risk:
         st.subheader("Underwater Plot (Drawdowns)")
-        st.markdown("Shows how far each index has fallen from its all-time high within the selected period.")
         
         fig_dd = go.Figure()
+        
         for name in indices_to_plot:
             df = market_data[name]
             dd = calculate_drawdown(df['Close'])
@@ -171,8 +211,12 @@ def main():
         vol_data = []
         for name in indices_to_plot:
             df = market_data[name]
+            
+            if len(df) < 252: # Need approx 1 year of data for valid annual calculation
+                vol_data.append({"Index": name, "Annualized Volatility": "N/A", "Max Drawdown (Period)": "N/A"})
+                continue
+
             returns = df['Close'].pct_change().dropna()
-            # Annualized Volatility = Daily Std Dev * Sqrt(252)
             ann_vol = returns.std() * np.sqrt(252) * 100
             max_dd = calculate_drawdown(df['Close']).min()
             
@@ -184,60 +228,69 @@ def main():
             
         st.dataframe(pd.DataFrame(vol_data), use_container_width=True)
 
-    # --- TAB 3: DEEP DIVE ---
+    # --- TAB 3: TECHNICAL DEEP DIVE ---
     with tab_deep_dive:
         st.subheader("Technical Deep Dive")
         
         col_dd_1, col_dd_2 = st.columns([1, 3])
         
         with col_dd_1:
-            selected_asset = st.selectbox("Select Asset to Analyze", list(market_data.keys()))
+            selected_asset = st.selectbox("Select Asset to Analyze", available_indices, key="deep_dive_asset")
             df_asset = market_data[selected_asset].copy()
             
             # Calculate Indicators
-            df_asset['RSI'] = calculate_rsi(df_asset['Close'])
-            for ma in ma_windows:
-                df_asset[f'MA_{ma}'] = df_asset['Close'].rolling(window=ma).mean()
-                
-            st.dataframe(df_asset[['Close', 'RSI']].tail(10).sort_index(ascending=False), use_container_width=True)
+            if len(df_asset) > 14:
+                df_asset['RSI'] = calculate_rsi(df_asset['Close'])
+                for ma in ma_windows:
+                    df_asset[f'MA_{ma}'] = df_asset['Close'].rolling(window=ma).mean()
+            
+            # Display current RSI value
+            latest_rsi = df_asset['RSI'].iloc[-1] if 'RSI' in df_asset.columns else np.nan
+            st.metric("Latest RSI (14-Day)", f"{latest_rsi:.2f}" if not np.isnan(latest_rsi) else "N/A")
+            
+            st.dataframe(df_asset.tail(10).sort_index(ascending=False), use_container_width=True, height=300)
 
         with col_dd_2:
-            # Create Subplots: Row 1 = Price/MA, Row 2 = RSI
-            from plotly.subplots import make_subplots
-            
-            fig_tech = make_subplots(rows=2, cols=1, shared_xaxes=True, 
-                                     vertical_spacing=0.05, row_heights=[0.7, 0.3])
-            
-            # Candlestick
-            fig_tech.add_trace(go.Candlestick(
-                x=df_asset.index,
-                open=df_asset['Open'], high=df_asset['High'],
-                low=df_asset['Low'], close=df_asset['Close'],
-                name="OHLC"
-            ), row=1, col=1)
-            
-            # Moving Averages
-            colors = ['orange', 'blue', 'purple', 'black']
-            for i, ma in enumerate(ma_windows):
-                if f'MA_{ma}' in df_asset.columns:
-                    fig_tech.add_trace(go.Scatter(
-                        x=df_asset.index, y=df_asset[f'MA_{ma}'], 
-                        mode='lines', name=f'{ma} DMA',
-                        line=dict(width=1, color=colors[i % len(colors)])
-                    ), row=1, col=1)
-            
-            # RSI
-            fig_tech.add_trace(go.Scatter(
-                x=df_asset.index, y=df_asset['RSI'], 
-                name='RSI (14)', line=dict(color='purple')
-            ), row=2, col=1)
-            
-            # RSI Levels
-            fig_tech.add_hline(y=70, line_dash="dash", line_color="red", row=2, col=1)
-            fig_tech.add_hline(y=30, line_dash="dash", line_color="green", row=2, col=1)
-            
-            fig_tech.update_layout(height=600, title=f"{selected_asset} Technical Chart", xaxis_rangeslider_visible=False)
-            st.plotly_chart(fig_tech, use_container_width=True)
+            if 'RSI' in df_asset.columns:
+                from plotly.subplots import make_subplots
+                
+                # Create Subplots: Row 1 = Price/MA, Row 2 = RSI
+                fig_tech = make_subplots(rows=2, cols=1, shared_xaxes=True, 
+                                         vertical_spacing=0.05, row_heights=[0.7, 0.3])
+                
+                # Candlestick (Row 1)
+                fig_tech.add_trace(go.Candlestick(
+                    x=df_asset.index,
+                    open=df_asset['Open'], high=df_asset['High'],
+                    low=df_asset['Low'], close=df_asset['Close'],
+                    name="OHLC"
+                ), row=1, col=1)
+                
+                # Moving Averages (Row 1)
+                colors = ['orange', 'blue', 'purple', 'black']
+                for i, ma in enumerate(ma_windows):
+                    if f'MA_{ma}' in df_asset.columns:
+                        fig_tech.add_trace(go.Scatter(
+                            x=df_asset.index, y=df_asset[f'MA_{ma}'], 
+                            mode='lines', name=f'{ma} DMA',
+                            line=dict(width=1, color=colors[i % len(colors)])
+                        ), row=1, col=1)
+                
+                # RSI (Row 2)
+                fig_tech.add_trace(go.Scatter(
+                    x=df_asset.index, y=df_asset['RSI'], 
+                    name='RSI (14)', line=dict(color='purple')
+                ), row=2, col=1)
+                
+                # RSI Levels
+                fig_tech.add_hline(y=70, line_dash="dash", line_color="red", row=2, col=1)
+                fig_tech.add_hline(y=30, line_dash="dash", line_color="green", row=2, col=1)
+                
+                fig_tech.update_layout(height=600, title=f"{selected_asset} Technical Chart", 
+                                       xaxis_rangeslider_visible=False, showlegend=True)
+                st.plotly_chart(fig_tech, use_container_width=True)
+            else:
+                st.warning("Not enough data (minimum 14 days) to calculate technical indicators.")
 
 if __name__ == "__main__":
     main()
