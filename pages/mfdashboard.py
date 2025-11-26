@@ -330,7 +330,7 @@ def main():
     # --- Main Content ---
     st.title(f"📊 {selected_category} Fund Analyzer")
     st.markdown("""
-    Select how many funds to analyze. 
+    All funds in the selected category will be analyzed automatically.
     **Note:** Fetching data takes time (approx 0.5s per fund).
     """)
     
@@ -346,22 +346,10 @@ def main():
     cat_schemes = MutualFundAnalyzer.filter_schemes_by_category(all_schemes, selected_category)
     st.info(f"Found **{len(cat_schemes)}** Regular Growth schemes in {selected_category}.")
     
-    # 3. User Controls for Batch Processing
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        limit = st.slider("Number of funds to analyze:", min_value=1, max_value=200, value=5)
-    with col2:
-        st.write(" ") # Spacer
-        st.write(" ") 
-        start_btn = st.button("🚀 Fetch & Analyze Data", type="primary")
-
-    # 4. Process Data on Click
-    if start_btn:
-        # Slice the list to the user limit
-        schemes_to_process = cat_schemes[:limit]
-        
+    # 3. Automatically Process All Funds
+    if cat_schemes:
         with st.container():
-            df_results = process_funds_batch(schemes_to_process, rf_rate)
+            df_results = process_funds_batch(cat_schemes, rf_rate)
             
             if not df_results.empty:
                 # Formatting and Display
@@ -386,9 +374,7 @@ def main():
                 )
                 
                 # Simple Correlation Matrix if enough data
-                if len(df_results) > 1:
-                    st.caption("Top Performers (Sorted by Sharpe Ratio)")
-                    st.bar_chart(df_results.set_index('Scheme Name')['Sharpe'])
+                #  
                     
             else:
                 st.warning("No data could be fetched for the selected funds.")
