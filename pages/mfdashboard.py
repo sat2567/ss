@@ -319,7 +319,7 @@ def main():
     # Risk Free Rate Input
     rf_rate = st.sidebar.number_input(
         "Risk Free Rate (%)", 
-        min_value=0.0, max_value=15.0, value=7.0, step=0.5,
+        min_value=0.0, max_value=15.0, value=5.0, step=0.5,
         help="Used for Sharpe & Sortino Ratio calculations. Default 7.0% (approx G-Sec yield)."
     )
     
@@ -329,10 +329,7 @@ def main():
 
     # --- Main Content ---
     st.title(f"📊 {selected_category} Fund Analyzer")
-    st.markdown("""
-    All funds in the selected category will be analyzed automatically.
-    **Note:** Fetching data takes time (approx 0.5s per fund).
-    """)
+   
     
     # 1. Fetch Master List
     with st.spinner("Fetching Scheme Master List..."):
