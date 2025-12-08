@@ -239,6 +239,9 @@ class MutualFundAnalyzer:
             df['date'] = pd.to_datetime(df['date'], format='%d-%m-%Y')
             df['nav'] = pd.to_numeric(df['nav'], errors='coerce')
             
+            # Data Cleaning: Remove non-positive NAVs which cause calculation errors
+            df = df[df['nav'] > 0]
+            
             # Sort by date ascending
             df = df.dropna().sort_values('date').set_index('date')
             return df
