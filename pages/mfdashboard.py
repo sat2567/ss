@@ -3,7 +3,7 @@ import requests
 import pandas as pd
 from datetime import timedelta
 import time
-from typing import Dict, List, Optional
+from typing import Dict, List
 import numpy as np
 import difflib
 import re
@@ -11,477 +11,281 @@ import re
 # --- Configuration ---
 BASE_URL = "https://api.mfapi.in"
 
-# --- USER DEFINED FUND LIST (STRICT FILTER) ---
+# --- USER DEFINED FUND LIST ---
 USER_FUNDS_CONFIG = {
     "LARGE CAP": [
-        "Aditya Birla SL Large Cap Fund-Reg(G)", "Axis Large Cap Fund-Reg(G)", "Bajaj Finserv Large Cap Fund-Reg(G)",
-        "Bandhan Large Cap Fund-Reg(G)", "Bank of India Large Cap Fund-Reg(G)", "Baroda BNP Paribas Large Cap Fund-Reg(G)",
-        "Canara Rob Large Cap Fund-Reg(G)", "DSP Large Cap Fund-Reg(G)", "Edelweiss Large Cap Fund-Reg(G)",
-        "Franklin India Large Cap Fund(G)", "Groww Largecap Fund-Reg(G)", "HDFC Large Cap Fund(G)",
-        "HSBC Large Cap Fund(G)", "ICICI Pru Large Cap Fund(G)", "ITI Large Cap Fund-Reg(G)",
-        "Invesco India Largecap Fund-Reg(G)", "JM Large Cap Fund-Reg(G)", "Kotak Large Cap Fund(IDCW)",
-        "LIC MF Large Cap Fund-Reg(G)", "Mahindra Manulife Large Cap Fund-Reg(G)", "Mirae Asset Large Cap Fund-Reg(G)",
-        "Motilal Oswal Large Cap Fund-Reg(G)", "Nippon India Large Cap Fund(G)", "PGIM India Large Cap Fund(G)",
-        "Qsif Equity Ex-Top 100 Long-Short Fund-Reg(G)", "Quant Large Cap Fund-Reg(G)", "SBI Large Cap Fund-Reg(G)",
-        "Samco Large Cap Fund-Reg(G)", "Sundaram Large Cap Fund-Reg(G)", "Tata Large Cap Fund-Reg(G)",
-        "Taurus Large Cap Fund-Reg(G)", "UTI Large Cap Fund-Reg(IDCW)", "Union Largecap Fund-Reg(G)",
-        "WOC Large Cap Fund-Reg(G)"
-    ],
-    "SMALL CAP": [
-        "Aditya Birla SL Small Cap Fund(G)", "Axis Small Cap Fund-Reg(G)", "Bajaj Finserv Small Cap Fund-Reg(G)",
-        "Bandhan Small Cap Fund-Reg(G)", "Bank of India Small Cap Fund-Reg(G)", "Baroda BNP Paribas Small Cap Fund-Reg(G)",
-        "Canara Rob Small Cap Fund-Reg(G)", "DSP Small Cap Fund-Reg(G)", "Edelweiss Small Cap Fund-Reg(G)",
-        "Franklin India Small Cap Fund(G)", "HDFC Small Cap Fund-Reg(G)", "HSBC Small Cap Fund-Reg(G)",
-        "Helios Small Cap Fund-Reg(G)", "ICICI Pru Smallcap Fund(G)", "ITI Small Cap Fund-Reg(G)",
-        "Invesco India Smallcap Fund-Reg(G)", "JM Small Cap Fund-Reg(G)", "Kotak Small Cap Fund(G)",
-        "LIC MF Small Cap Fund-Reg(G)", "Mahindra Manulife Small Cap Fund-Reg(G)", "Mirae Asset Small Cap Fund-Reg(G)",
-        "Motilal Oswal Small Cap Fund-Reg(G)", "Nippon India Small Cap Fund(G)", "PGIM India Small Cap Fund-Reg(G)",
-        "Quant Small Cap Fund(G)", "Quantum Small Cap Fund-Reg(G)", "SBI Small Cap Fund-Reg(G)",
-        "Sundaram Small Cap Fund(G)", "TRUSTMF Small Cap Fund-Reg(G)", "Tata Small Cap Fund-Reg(G)",
-        "UTI Small Cap Fund-Reg(G)", "Union Small Cap Fund-Reg(G)"
+        "Aditya Birla SL Large Cap Fund", "Axis Large Cap Fund", "Bajaj Finserv Large Cap Fund",
+        "Bandhan Large Cap Fund", "Bank of India Large Cap Fund", "Baroda BNP Paribas Large Cap Fund",
+        "Canara Rob Large Cap Fund", "DSP Large Cap Fund", "Edelweiss Large Cap Fund",
+        "Franklin India Large Cap Fund", "Groww Largecap Fund", "HDFC Large Cap Fund",
+        "HSBC Large Cap Fund", "ICICI Pru Large Cap Fund", "ITI Large Cap Fund",
+        "Invesco India Largecap Fund", "JM Large Cap Fund", "Kotak Large Cap Fund",
+        "LIC MF Large Cap Fund", "Mahindra Manulife Large Cap Fund", "Mirae Asset Large Cap Fund",
+        "Motilal Oswal Large Cap Fund", "Nippon India Large Cap Fund", "PGIM India Large Cap Fund",
+        "Quant Large Cap Fund", "SBI Large Cap Fund",
+        "Samco Large Cap Fund", "Sundaram Large Cap Fund", "Tata Large Cap Fund",
+        "Taurus Large Cap Fund", "UTI Large Cap Fund", "Union Largecap Fund",
+        "WhiteOak Large Cap Fund"
     ],
     "MID CAP": [
-        "Aditya Birla SL Midcap Fund(G)", "Axis Midcap Fund-Reg(G)", "Bandhan Midcap Fund-Reg(G)",
-        "Baroda BNP Paribas Mid Cap Fund-Reg(G)", "DSP Midcap Fund-Reg(G)", "Edelweiss Mid Cap Fund-Reg(G)",
-        "Franklin India Mid Cap Fund(G)", "HDFC Mid Cap Fund-Reg(G)", "HSBC Midcap Fund-Reg(G)",
-        "ICICI Pru Midcap Fund(G)", "ITI Mid Cap Fund-Reg(G)", "Invesco India Midcap Fund-Reg(G)",
-        "Kotak Midcap Fund-Reg(G)", "LIC MF Midcap Fund-Reg(G)", "Mahindra Manulife Mid Cap Fund-Reg(G)",
-        "Mirae Asset Midcap Fund-Reg(G)", "Motilal Oswal Midcap Fund-Reg(G)", "Nippon India Growth Mid Cap Fund(G)",
-        "PGIM India Midcap Fund-Reg(G)", "Quant Mid Cap Fund(G)", "SBI Midcap Fund-Reg(G)",
-        "Sundaram Mid Cap Fund-Reg(G)", "Tata Mid Cap Fund-Reg(G)", "Taurus Mid Cap Fund-Reg(G)",
-        "UTI Mid Cap Fund-Reg(G)", "Union Midcap Fund-Reg(G)"
+        "Aditya Birla SL Midcap Fund", "Axis Midcap Fund", "Bandhan Midcap Fund",
+        "Baroda BNP Paribas Mid Cap Fund", "DSP Midcap Fund", "Edelweiss Mid Cap Fund",
+        "Franklin India Mid Cap Fund", "HDFC Mid Cap Fund", "HSBC Midcap Fund",
+        "ICICI Pru Midcap Fund", "ITI Mid Cap Fund", "Invesco India Midcap Fund",
+        "Kotak Midcap Fund", "LIC MF Midcap Fund", "Mahindra Manulife Mid Cap Fund",
+        "Mirae Asset Midcap Fund", "Motilal Oswal Midcap Fund", "Nippon India Growth Mid Cap Fund",
+        "PGIM India Midcap Fund", "Quant Mid Cap Fund", "SBI Midcap Fund",
+        "Sundaram Mid Cap Fund", "Tata Mid Cap Fund", "Taurus Mid Cap Fund",
+        "UTI Mid Cap Fund", "Union Midcap Fund"
+    ],
+    "SMALL CAP": [
+        "Aditya Birla SL Small Cap Fund", "Axis Small Cap Fund", "Bajaj Finserv Small Cap Fund",
+        "Bandhan Small Cap Fund", "Bank of India Small Cap Fund", "Baroda BNP Paribas Small Cap Fund",
+        "Canara Rob Small Cap Fund", "DSP Small Cap Fund", "Edelweiss Small Cap Fund",
+        "Franklin India Small Cap Fund", "HDFC Small Cap Fund", "HSBC Small Cap Fund",
+        "Helios Small Cap Fund", "ICICI Pru Smallcap Fund", "ITI Small Cap Fund",
+        "Invesco India Smallcap Fund", "JM Small Cap Fund", "Kotak Small Cap Fund",
+        "LIC MF Small Cap Fund", "Mahindra Manulife Small Cap Fund", "Mirae Asset Small Cap Fund",
+        "Motilal Oswal Small Cap Fund", "Nippon India Small Cap Fund", "PGIM India Small Cap Fund",
+        "Quant Small Cap Fund", "SBI Small Cap Fund",
+        "Sundaram Small Cap Fund", "Tata Small Cap Fund",
+        "UTI Small Cap Fund", "Union Small Cap Fund"
     ],
     "LARGE & MID CAP": [
-        "Axis Large & Mid Cap Fund-Reg(G)", "Bajaj Finserv Large and Mid Cap Fund-Reg(G)", "Bandhan Large & Mid Cap Fund-Reg(G)",
-        "Bank of India Large & Mid Cap Fund-Reg(G)", "Baroda BNP Paribas Large & Mid Cap Fund-Reg(G)",
-        "Canara Rob Large and Mid Cap Fund-Reg(G)", "DSP Large & Mid Cap Fund-Reg(G)", "Edelweiss Large & Mid Cap Fund-Reg(G)",
-        "Franklin India Large & Mid Cap Fund(G)", "HDFC Large and Mid Cap Fund-Reg(G)", "HSBC Large & Mid Cap Fund-Reg(G)",
-        "Helios Large & Mid Cap Fund-Reg(G)", "ICICI Pru Large & Mid Cap Fund(G)", "ITI Large & Mid Cap Fund-Reg(G)",
-        "Invesco India Large & Mid Cap Fund-Reg(G)", "JM Large & Mid Cap Fund-Reg(G)", "Kotak Large & Midcap Fund(G)",
-        "LIC MF Large & Midcap Fund-Reg(G)", "Mahindra Manulife Large & Mid Cap Fund-Reg(G)",
-        "Mirae Asset Large & Midcap Fund-Reg(G)", "Motilal Oswal Large & Midcap Fund-Reg(G)",
-        "Navi Large & Midcap Fund-Reg(G)", "Nippon India Vision Large & Mid Cap Fund(G)", "PGIM India Large and Mid Cap Fund(G)",
-        "Quant Large & Mid Cap Fund(G)", "SBI Large & Midcap Fund-Reg(IDCW)", "Samco Large & Mid Cap Fund-Reg(G)",
-        "Sundaram Large and Mid Cap Fund(G)", "Tata Large & Mid Cap Fund-Reg(G)", "UTI Large & Mid Cap Fund-Reg(G)",
-        "Union Large & Midcap Fund-Reg(G)", "WOC Large & Mid Cap Fund-Reg(G)"
-    ],
-    "MULTI CAP": [
-        "Aditya Birla SL Multi-Cap Fund-Reg(G)", "Axis Multicap Fund-Reg(G)", "Bajaj Finserv Multi Cap Fund-Reg(G)",
-        "Bandhan Multi Cap Fund-Reg(G)", "Bank of India Multi Cap Fund-Reg(G)", "Baroda BNP Paribas Multi Cap Fund-Reg(G)",
-        "Canara Rob Multi Cap Fund-Reg(G)", "DSP Multicap Fund-Reg(G)", "Diviniti Equity Long Short Fund-Reg(G)",
-        "Edelweiss Multi Cap Fund-Reg(G)", "Franklin India Multi Cap Fund-Reg(G)", "Groww Multicap Fund-Reg(G)",
-        "HDFC Multi Cap Fund-Reg(G)", "HSBC Multi Cap Fund-Reg(G)", "ICICI Pru Multicap Fund(G)",
-        "ITI Multi-Cap Fund-Reg(G)", "Invesco India Multicap Fund-Reg(G)", "Kotak Multicap Fund-Reg(G)",
-        "LIC MF Multi Cap Fund-Reg(G)", "Mahindra Manulife Multi Cap Fund-Reg(G)", "Mirae Asset Multicap Fund-Reg(G)",
-        "Motilal Oswal Multi Cap Fund-Reg(G)", "Nippon India Multi Cap Fund(G)", "PGIM India Multi Cap Fund-Reg(G)",
-        "Qsif Equity Long-Short Fund-Reg(G)", "Quant Multi Cap Fund(G)", "SBI Multicap Fund-Reg(G)",
-        "Samco Multi Cap Fund-Reg(G)", "Sundaram Multi Cap Fund(G)", "TRUSTMF Multi Cap Fund-Reg(G)",
-        "Tata Multicap Fund-Reg(G)", "UTI Multi Cap Fund-Reg(G)", "Union Multicap Fund-Reg(G)",
-        "WOC Multi Cap Fund-Reg(G)"
-    ],
-    "INTERNATIONAL": [
-        "Aditya Birla SL Global Emerging Opp Fund(G)", "Aditya Birla SL Global Excellence Equity FoF(G)",
-        "Aditya Birla SL Intl. Equity Fund(G)", "Aditya Birla SL US Equity Passive FOF-Reg(G)",
-        "Aditya Birla SL US Treasury 1-3 year Bond ETFs FoF-Reg(G)", "Aditya Birla SL US Treasury 3-10 year Bond ETFs FoF-Reg(G)",
-        "Axis Global Equity Alpha FoF-Reg(G)", "Axis Global Innovation FoF-Reg(G)", "Axis Greater China Equity FoF-Reg(G)",
-        "Axis US Specific Equity Passive FOF-Reg(G)", "Axis US Specific Treasury Dynamic Debt Passive FoF-Reg(G)",
-        "Bandhan US Specific Equity Active FoF-Reg(G)", "Bandhan US Treasury Bond 0-1 year specific Debt Passive FOF-Reg(G)",
-        "Baroda BNP Paribas Aqua FoF-Reg(G)", "DSP Global Clean Energy Overseas Equity Omni FoF-Reg(G)",
-        "DSP Global Innovation Overseas Equity Omni FoF-Reg(G)", "DSP US Specific Debt Passive FoF-Reg(G)",
-        "DSP US Specific Equity Omni FoF-Reg(G)", "DSP World Mining Overseas Equity Omni FoF-Reg(G)",
-        "Edelweiss ASEAN Equity Off-Shore Fund-Reg(G)", "Edelweiss Emerging Markets Opp Eq. Offshore Fund-Reg(G)",
-        "Edelweiss Europe Dynamic Equity Off-shore Fund-Reg(G)", "Edelweiss Greater China Equity Off-shore Fund-Reg(G)",
-        "Edelweiss US Technology Equity FOF-Reg(G)", "Edelweiss US Value Equity Offshore Fund-Reg(G)",
-        "Franklin Asian Equity Fund(G)", "Franklin U.S. Opportunities Equity Active FOF(G)",
-        "HDFC Developed World Overseas Equity Passive FOF-Reg(G)", "HSBC Asia Pacific (Ex Japan) DYF-Reg(G)",
-        "HSBC Brazil Fund(G)", "HSBC Global Emerging Markets Fund(G)", "HSBC Global Equity Climate Change FoF-Reg(G)",
-        "ICICI Pru Global Advantage Fund(FOF)(G)", "ICICI Pru Global Stable Equity Fund(FOF)(G)",
-        "ICICI Pru Strategic Metal and Energy Equity FoF-Reg(G)", "ICICI Pru US Bluechip Equity Fund(G)",
-        "Invesco India - Invesco EQQQ NASDAQ-100 ETF FoF-Reg(G)", "Invesco India - Invesco Global Consumer Trends FoF-Reg(G)",
-        "Invesco India - Invesco Global Equity Income FoF-Reg(G)", "Invesco India - Invesco Pan European Equity FoF-Reg(G)",
-        "Kotak Global Emerging Market Overseas Equity Omni FOF(G)", "Kotak Global Innovation Overseas Equity Omni FOF-Reg(G)",
-        "Kotak International REIT Overseas Equity Omni FOF-Reg(G)", "Kotak US Specific Equity Passive FOF-Reg(G)",
-        "Mahindra Manulife Asia Pacific REITs FOF-Reg(G)", "Mirae Asset Global Electric & Autonomous Vehicles Equity Passive FOF-Reg(G)",
-        "Mirae Asset Global X Artificial Intelligence & Technology ETF FoF-Reg(G)", "Mirae Asset Hang Seng TECH ETF FoF-Reg(G)",
-        "Mirae Asset NYSE FANG+ETF FoF-Reg(G)", "Mirae Asset S&P 500 Top 50 ETF FoF-Reg(G)",
-        "Motilal Oswal Developed Market Ex US ETFs Overseas Equity Passive FOF-Reg(G)", "Motilal Oswal Nasdaq 100 FOF-Reg(G)",
-        "Navi US Nasdaq100 FOF-Reg(G)", "Navi US Total Stock Market FoF-Reg(G)", "Nippon India Japan Equity Fund(G)",
-        "Nippon India Taiwan Equity Fund-Reg(G)", "Nippon India US Equity Opp Fund(G)", "PGIM India Emerging Markets Equity FoF(G)",
-        "PGIM India Global Equity Opp FoF(G)", "PGIM India Global Select Real Estate Securities FoF-Reg(G)",
-        "SBI US Specific Equity Active FoF-Reg(G)", "Sundaram Global Brand Theme - Equity Active FoF(G)"
+        "Axis Large & Mid Cap Fund", "Bandhan Large & Mid Cap Fund",
+        "Canara Rob Large and Mid Cap Fund", "DSP Large & Mid Cap Fund", "Edelweiss Large & Mid Cap Fund",
+        "Franklin India Large & Mid Cap Fund", "HDFC Large and Mid Cap Fund", "HSBC Large & Mid Cap Fund",
+        "ICICI Pru Large & Mid Cap Fund", "Kotak Large & Midcap Fund",
+        "LIC MF Large & Midcap Fund", "Mahindra Manulife Large & Mid Cap Fund",
+        "Mirae Asset Large & Midcap Fund", "Motilal Oswal Large & Midcap Fund",
+        "Nippon India Vision Large & Mid Cap Fund", "PGIM India Large and Mid Cap Fund",
+        "Quant Large & Mid Cap Fund", "SBI Large & Midcap Fund",
+        "Sundaram Large and Mid Cap Fund", "Tata Large & Mid Cap Fund", "UTI Large & Mid Cap Fund",
+        "Union Large & Midcap Fund"
     ]
 }
 
-class FundNameMatcher:
-    """Helper to map user's abbreviated names to API's verbose names."""
-    
-    ABBREVIATIONS = {
-        "SL": "Sun Life",
-        "Pru": "Prudential",
-        "Rob": "Robeco",
-        "WOC": "WhiteOak",
-        "Intl": "International",
-        "Opp": "Opportunities",
-        "Eq": "Equity"
+# --- STRICT CATEGORY RULES ---
+# "Forbidden": If these words appear in the API result, REJECT IT.
+# "Synonyms": If the user says "Large Cap", also accept "Bluechip" or "Frontline"
+CATEGORY_RULES = {
+    "LARGE CAP": {
+        "forbidden": ["Mid", "Small", "Flexi", "Multi", "Silver", "Gold", "ETF", "Index", "Nifty", "Sensex", "Passive", "Overseas", "Global"],
+        "synonyms": ["Bluechip", "Frontline", "Top 100", "Focused", "Leaders", "Equity"]
+    },
+    "MID CAP": {
+        "forbidden": ["Large", "Small", "Bluechip", "Frontline", "Flexi", "Multi", "Silver", "Gold", "ETF", "Index"],
+        "synonyms": ["Emerging", "Growth", "Prima"]
+    },
+    "SMALL CAP": {
+        "forbidden": ["Large", "Mid", "Bluechip", "Frontline", "Flexi", "Multi", "Silver", "Gold", "ETF"],
+        "synonyms": ["Emerging", "Discovery"]
+    },
+    "LARGE & MID CAP": {
+        "forbidden": ["Small", "Flexi", "Multi", "Silver", "Gold", "ETF", "Bluechip"], 
+        "synonyms": ["Equity"] 
     }
+}
+
+class FundNameMatcher:
+    
+    @staticmethod
+    def clean_name(name: str) -> str:
+        """Standardizes name for comparison."""
+        name = name.lower()
+        # Remove standard noise
+        name = re.sub(r'[-\s]*regular\s*plan', '', name)
+        name = re.sub(r'[-\s]*direct\s*plan', '', name)
+        name = re.sub(r'[-\s]*growth\s*option', '', name)
+        name = re.sub(r'\((g|idcw|d)\)', '', name)
+        name = name.replace("aditya birla sl", "aditya birla sun life")
+        name = name.replace("canara rob", "canara robeco")
+        name = name.replace("woc", "whiteoak")
+        return name.strip()
 
     @staticmethod
-    def normalize_user_name(name: str) -> dict:
-        """Parses the user provided name into search components."""
-        # 1. Detect IDCW vs Growth
-        is_idcw = "IDCW" in name or "Dividend" in name
+    def check_category_constraints(api_name_clean: str, category: str) -> bool:
+        """Returns False if the fund violates strict category rules."""
+        rules = CATEGORY_RULES.get(category, {})
+        forbidden = rules.get("forbidden", [])
         
-        # 2. Handle Abbreviations
-        clean_name = name
-        # Remove suffixes like -Reg(G), (G), etc.
-        clean_name = re.sub(r'[-\s]*Reg(\(G\))?', '', clean_name, flags=re.IGNORECASE)
-        clean_name = re.sub(r'[-\s]*\(G\)', '', clean_name, flags=re.IGNORECASE)
-        clean_name = re.sub(r'[-\s]*\(IDCW\)', '', clean_name, flags=re.IGNORECASE)
-        
-        # Expand common abbreviations
-        parts = clean_name.split()
-        expanded_parts = [FundNameMatcher.ABBREVIATIONS.get(p, p) for p in parts]
-        
-        return {
-            "search_terms": expanded_parts,
-            "is_idcw": is_idcw,
-            "original": name
-        }
+        # Check forbidden words
+        for bad_word in forbidden:
+            # We look for bad words as distinct tokens (e.g. avoid banning "Middle" if looking for "Mid")
+            # But simple containment is usually safer for these specific keywords
+            if bad_word.lower() in api_name_clean:
+                return False # VIOLATION
+        return True
 
     @staticmethod
-    def is_match(api_scheme: dict, search_criteria: dict) -> float:
-        """Scores how well an API scheme matches the user criteria."""
-        api_name = api_scheme.get("schemeName", "").lower()
+    def get_best_match(user_fund_name: str, all_schemes: List[Dict], category: str) -> Dict:
+        """Finds best match while respecting category constraints."""
         
-        # 1. Filter Direct Plans (User requested Reg)
-        if "direct" in api_name:
-            return 0.0
-            
-        # 2. Filter Growth vs IDCW
-        has_idcw = "idcw" in api_name or "dividend" in api_name
-        if search_criteria["is_idcw"] != has_idcw:
-            return 0.0
-            
-        # 3. Keyword Matching
-        match_score = 0
-        search_terms = [t.lower() for t in search_criteria["search_terms"]]
+        clean_user = FundNameMatcher.clean_name(user_fund_name)
         
-        # Check if all key terms are present (AMC Name)
-        if search_terms[0] not in api_name:
-            return 0.0
-            
-        # Calculate fuzzy similarity
-        clean_api_name = api_name.replace(" - ", " ").replace(" regular plan ", "")
-        search_string = " ".join(search_terms)
+        # 1. Expand User Query with Synonyms
+        # If user says "SBI Large Cap", we also want to look for "SBI Bluechip"
+        search_candidates = [clean_user]
+        rules = CATEGORY_RULES.get(category, {})
         
-        # Use SequenceMatcher for similarity
-        score = difflib.SequenceMatcher(None, search_string, clean_api_name).ratio()
-        return score
+        # Try swapping "Large Cap" with "Bluechip" etc.
+        base_amc = clean_user.replace("large cap", "").replace("mid cap", "").replace("small cap", "").replace("fund", "").strip()
+        
+        if category == "LARGE CAP":
+            for syn in rules.get("synonyms", []):
+                search_candidates.append(f"{base_amc} {syn.lower()}")
+
+        best_match = None
+        best_score = 0.0
+
+        for scheme in all_schemes:
+            api_name_raw = scheme["schemeName"]
+            
+            # Fast Filters
+            if "Direct" in api_name_raw: continue
+            if "IDCW" in api_name_raw or "Dividend" in api_name_raw: continue
+            
+            clean_api = FundNameMatcher.clean_name(api_name_raw)
+
+            # 2. STRICT CATEGORY FILTER
+            if not FundNameMatcher.check_category_constraints(clean_api, category):
+                continue
+
+            # 3. AMC Match Check (Critical)
+            # The first word of user query (AMC name) MUST exist in API name
+            user_tokens = clean_user.split()
+            if user_tokens and user_tokens[0] not in clean_api:
+                continue
+
+            # 4. Fuzzy Scoring
+            # We score against ALL candidates (Original name + Synonym names)
+            current_max_score = 0
+            for candidate in search_candidates:
+                score = difflib.SequenceMatcher(None, candidate, clean_api).ratio()
+                if score > current_max_score:
+                    current_max_score = score
+            
+            if current_max_score > best_score:
+                best_score = current_max_score
+                best_match = scheme
+
+        # Threshold
+        if best_score > 0.50:
+            best_match['matchScore'] = best_score
+            return best_match
+        return None
 
 class MutualFundAnalyzer:
-    
     @staticmethod
     @st.cache_data(ttl=86400, show_spinner=False)
     def get_all_schemes() -> List[Dict]:
-        """Fetch list of all mutual fund schemes."""
         try:
             response = requests.get(f"{BASE_URL}/mf", timeout=30)
             response.raise_for_status()
             return response.json()
-        except Exception as e:
-            st.error(f"Error fetching schemes list: {e}")
-            return []
+        except: return []
 
     @staticmethod
-    @st.cache_data(ttl=3600)
-    def match_schemes(user_category_funds: List[str], all_schemes: List[Dict]) -> List[Dict]:
-        """Maps user specific names to API scheme codes."""
-        matched_schemes = []
-        
-        for user_fund_name in user_category_funds:
-            criteria = FundNameMatcher.normalize_user_name(user_fund_name)
-            
-            best_match = None
-            best_score = 0.0
-            
-            # Search through master list
-            for scheme in all_schemes:
-                score = FundNameMatcher.is_match(scheme, criteria)
-                if score > best_score:
-                    best_score = score
-                    best_match = scheme
-            
-            # INCREASED THRESHOLD: 0.55 prevents matching "Large Cap" to "Long Term Advantage"
-            if best_match and best_score > 0.55:
-                best_match['displayName'] = user_fund_name
-                best_match['matchScore'] = best_score # Store score for debug
-                matched_schemes.append(best_match)
-            
-        return matched_schemes
-
-    @staticmethod
-    @st.cache_data(ttl=86400, show_spinner=False)
-    def get_scheme_data(scheme_code: str) -> pd.DataFrame:
-        """Fetch historical NAV data for a single scheme with Outlier Cleaning."""
+    @st.cache_data(ttl=86400)
+    def get_scheme_data_clean(scheme_code: str) -> pd.DataFrame:
         try:
             response = requests.get(f"{BASE_URL}/mf/{scheme_code}", timeout=10)
-            response.raise_for_status()
             data = response.json()
+            if not data or 'data' not in data: return pd.DataFrame()
             
-            if not data or 'data' not in data:
-                return pd.DataFrame()
-                
             df = pd.DataFrame(data['data'])
             df['date'] = pd.to_datetime(df['date'], format='%d-%m-%Y')
             df['nav'] = pd.to_numeric(df['nav'], errors='coerce')
+            df = df[df['nav'] > 0].dropna().sort_values('date').set_index('date')
             
-            # 1. Basic Cleaning
-            df = df[df['nav'] > 0]
-            df = df.dropna().sort_values('date').set_index('date')
+            # Remove Spikes (>20% daily change)
+            pct = df['nav'].pct_change()
+            mask = (pct.abs() < 0.20)
+            mask.iloc[0] = True
+            df = df[mask]
             
-            if len(df) < 5: return pd.DataFrame()
-
-            # 2. OUTLIER REMOVAL (The Fix for 1000% returns)
-            # Remove days where NAV jumps or drops > 20% in a single day (Data Glitches)
-            # Exception: Splits usually drop NAV by 50% or 90%, but return calc handles that if adjusted.
-            # MFAPI gives raw NAV. If a split happens, raw NAV drops, returns look -50%. 
-            # If a glitch happens (0.01 NAV), returns look +5000%.
-            
-            pct_change = df['nav'].pct_change()
-            # We keep rows where change is less than 20% OR it's the first row
-            mask = (pct_change.abs() < 0.20)
-            mask.iloc[0] = True 
-            
-            # If we lose too much data, revert (means it might be a split we can't handle yet)
-            df_clean = df[mask]
-            
-            if len(df_clean) > len(df) * 0.5:
-                df = df_clean
-
             return df
-        except Exception:
-            return pd.DataFrame()
+        except: return pd.DataFrame()
 
     @staticmethod
-    def calculate_cagr(start: float, end: float, days: int) -> float:
-        if start <= 0 or days <= 0:
-            return np.nan
-        years = days / 365.25
-        return ((end / start) ** (1 / years) - 1) * 100
-
-    @staticmethod
-    def calculate_absolute_return(start: float, end: float) -> float:
-        if start <= 0: return np.nan
-        return (end / start - 1) * 100
-
-    @staticmethod
-    def get_return_metrics(df: pd.DataFrame) -> Dict[str, float]:
-        if df.empty or len(df) < 2:
-            return {k: np.nan for k in ["1W", "1M", "3M", "6M", "1Y", "3Y_CAGR", "5Y_CAGR"]}
-            
-        latest_date = df.index.max()
-        latest_nav = df.loc[latest_date, 'nav']
+    def calculate_metrics(df: pd.DataFrame) -> Dict:
+        if len(df) < 30: return {}
+        
+        latest_nav = df['nav'].iloc[-1]
+        last_date = df.index[-1]
+        
+        metrics = {'Latest NAV': latest_nav}
         
         periods = {
-            "1W": timedelta(weeks=1),
-            "1M": timedelta(days=30),
-            "3M": timedelta(days=90),
-            "6M": timedelta(days=180),
-            "1Y": timedelta(days=365),
-            "3Y_CAGR": timedelta(days=365*3),
-            "5Y_CAGR": timedelta(days=365*5)
+            '1Y': 365, '3Y': 365*3, '5Y': 365*5
         }
         
-        returns = {}
-        for label, delta in periods.items():
-            target_date = latest_date - delta
-            
-            idx_loc = df.index.get_indexer([target_date], method='nearest')[0]
-            
-            if idx_loc != -1:
-                past_date = df.index[idx_loc]
-                past_nav = df.loc[past_date, 'nav']
-                days_diff = (latest_date - past_date).days
-                
-                # Check if data point is strictly relevant (within margin)
-                # If we asked for 1 Year but the nearest data is 2 months ago, ignore it.
-                if abs(days_diff - delta.days) < 15: 
-                    if "CAGR" in label:
-                        returns[label] = MutualFundAnalyzer.calculate_cagr(past_nav, latest_nav, days_diff)
-                    else:
-                        returns[label] = MutualFundAnalyzer.calculate_absolute_return(past_nav, latest_nav)
-                else:
-                    returns[label] = np.nan
+        for lbl, days in periods.items():
+            target_date = last_date - timedelta(days=days)
+            idx = df.index.get_indexer([target_date], method='nearest')[0]
+            if idx != -1 and abs((df.index[idx] - target_date).days) < 20:
+                start_nav = df['nav'].iloc[idx]
+                years = days/365
+                cagr = ((latest_nav/start_nav)**(1/years) - 1)*100
+                metrics[lbl] = cagr
             else:
-                returns[label] = np.nan
-                
-        return returns
-
-    # --- Risk Metrics ---
-
-    @staticmethod
-    def calculate_volatility(df: pd.DataFrame) -> float:
-        if len(df) < 2: return np.nan
-        returns = df['nav'].pct_change().dropna()
-        return returns.std() * np.sqrt(252) * 100
-
-    @staticmethod
-    def calculate_sharpe_ratio(df: pd.DataFrame, rf_percent: float) -> float:
-        if len(df) < 252: return np.nan 
-        
-        start_nav = df['nav'].iloc[0]
-        end_nav = df['nav'].iloc[-1]
-        days = (df.index[-1] - df.index[0]).days
-        
-        if days <= 0: return np.nan
-        ann_return_decimal = (end_nav / start_nav) ** (365.25 / days) - 1
-        rf_decimal = rf_percent / 100
-        
-        returns = df['nav'].pct_change().dropna()
-        vol_decimal = returns.std() * np.sqrt(252)
-        
-        if vol_decimal == 0: return np.nan
-        return (ann_return_decimal - rf_decimal) / vol_decimal
-
-    @staticmethod
-    def calculate_sortino_ratio(df: pd.DataFrame, rf_percent: float) -> float:
-        if len(df) < 252: return np.nan
-        
-        start_nav = df['nav'].iloc[0]
-        end_nav = df['nav'].iloc[-1]
-        days = (df.index[-1] - df.index[0]).days
-        ann_return_decimal = (end_nav / start_nav) ** (365.25 / days) - 1
-        rf_decimal = rf_percent / 100
-        
-        returns = df['nav'].pct_change().dropna()
-        daily_rf = (1 + rf_decimal) ** (1/252) - 1
-        excess_returns = returns - daily_rf
-        negative_returns = excess_returns[excess_returns < 0]
-        
-        if len(negative_returns) == 0: return np.nan
-            
-        downside_variance = (negative_returns ** 2).sum() / len(returns)
-        downside_dev_ann = np.sqrt(downside_variance) * np.sqrt(252)
-        
-        if downside_dev_ann == 0: return np.nan
-        
-        return (ann_return_decimal - rf_decimal) / downside_dev_ann
-
-    @staticmethod
-    def calculate_max_drawdown(df: pd.DataFrame) -> float:
-        if df.empty: return np.nan
-        nav = df['nav']
-        peak = nav.expanding().max()
-        drawdown = (nav - peak) / peak
-        return drawdown.min() * 100
-
-def process_funds_batch(matched_schemes: List[Dict], rf_rate: float) -> pd.DataFrame:
-    results = []
-    
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    total = len(matched_schemes)
-    
-    for i, scheme in enumerate(matched_schemes):
-        progress = (i + 1) / total
-        progress_bar.progress(progress)
-        status_text.text(f"Analyzing {i+1}/{total}: {scheme.get('displayName', scheme['schemeName'])}...")
-        
-        code = scheme['schemeCode']
-        df = MutualFundAnalyzer.get_scheme_data(code)
-        
-        if not df.empty and len(df) > 30:
-            metrics = MutualFundAnalyzer.get_return_metrics(df)
-            vol = MutualFundAnalyzer.calculate_volatility(df)
-            sharpe = MutualFundAnalyzer.calculate_sharpe_ratio(df, rf_rate)
-            sortino = MutualFundAnalyzer.calculate_sortino_ratio(df, rf_rate)
-            mdd = MutualFundAnalyzer.calculate_max_drawdown(df)
-            
-            row = {
-                'Requested Name': scheme.get('displayName'),
-                'Actual API Name': scheme['schemeName'], # VITAL FOR DEBUGGING
-                'Latest NAV': df['nav'].iloc[-1],
-                '1W (%)': metrics['1W'],
-                '1M (%)': metrics['1M'],
-                '3M (%)': metrics['3M'],
-                '1Y (%)': metrics['1Y'],
-                '3Y CAGR (%)': metrics['3Y_CAGR'],
-                '5Y CAGR (%)': metrics['5Y_CAGR'],
-                'Vol (%)': vol,
-                'Sharpe': sharpe,
-                'Sortino': sortino,
-                'Max DD (%)': mdd
-            }
-            results.append(row)
-        
-        time.sleep(0.05) 
-        
-    progress_bar.empty()
-    status_text.empty()
-    return pd.DataFrame(results)
+                metrics[lbl] = np.nan
+        return metrics
 
 def main():
-    st.set_page_config(layout="wide", page_title="Strict Fund Analyzer")
+    st.set_page_config(layout="wide", page_title="Smart Fund Analyzer")
+    st.sidebar.title("Fund Analyzer")
     
-    # --- Sidebar ---
-    st.sidebar.title("⚙️ Settings")
-    rf_rate = st.sidebar.number_input("Risk Free Rate (%)", 5.0, 15.0, 7.0, 0.5)
+    category = st.sidebar.selectbox("Select Category", list(USER_FUNDS_CONFIG.keys()))
     
-    # Categories strictly from user list
-    categories = list(USER_FUNDS_CONFIG.keys())
-    selected_category = st.sidebar.selectbox("Select Category", categories)
-    
-    st.title(f"📊 {selected_category} Fund Analysis")
-    st.markdown("Fetching data strictly for the requested fund list.")
+    st.title(f"Strict Analysis: {category}")
+    st.info("Now using 'Negative Filtering' to strictly ban Funds from other categories (e.g., banning 'Mid' when searching for 'Large').")
 
-    # 1. Fetch Master List (Once)
-    with st.spinner("Connecting to AMFI/MFAPI..."):
+    with st.spinner("Fetching Master Data..."):
         all_schemes = MutualFundAnalyzer.get_all_schemes()
-        
+
     if not all_schemes:
-        st.error("Could not fetch scheme master list.")
+        st.error("API Down.")
         return
 
-    # 2. Match User Funds to API Codes
-    target_list = USER_FUNDS_CONFIG[selected_category]
-    matched = MutualFundAnalyzer.match_schemes(target_list, all_schemes)
+    # Process
+    target_funds = USER_FUNDS_CONFIG[category]
+    results = []
     
-    st.info(f"Identified data for **{len(matched)}** out of **{len(target_list)}** requested funds.")
+    progress = st.progress(0)
     
-    # Debug info for missing funds (optional)
-    if len(matched) < len(target_list):
-        found_names = [m.get('displayName') for m in matched]
-        missing = [f for f in target_list if f not in found_names]
-        with st.expander("Funds Not Found (Check Naming):"):
-            st.write(missing)
-
-    # 3. Process Data
-    if matched:
-        df_results = process_funds_batch(matched, rf_rate)
+    for i, user_fund in enumerate(target_funds):
+        progress.progress((i+1)/len(target_funds))
         
-        if not df_results.empty:
-            # Display
-            st.subheader("Performance Matrix")
-            st.markdown("Check 'Actual API Name' column to ensure the correct fund was matched.")
-            
-            format_dict = {
-                'Latest NAV': '₹{:.2f}',
-                '1W (%)': '{:.2f}%', '1M (%)': '{:.2f}%', '3M (%)': '{:.2f}%',
-                '1Y (%)': '{:.2f}%', '3Y CAGR (%)': '{:.2f}%', '5Y CAGR (%)': '{:.2f}%',
-                'Vol (%)': '{:.2f}%', 'Sharpe': '{:.2f}', 'Sortino': '{:.2f}',
-                'Max DD (%)': '{:.2f}%'
-            }
-            
-            st.dataframe(
-                df_results.style.format(format_dict)
-                .background_gradient(subset=['1Y (%)', '3Y CAGR (%)', 'Sharpe', 'Sortino'], cmap='RdYlGn'),
-                use_container_width=True,
-                height=600
-            )
-        else:
-            st.warning("No historical data available for these funds.")
+        # INTELLIGENT MATCHING
+        match = FundNameMatcher.get_best_match(user_fund, all_schemes, category)
+        
+        if match:
+            df = MutualFundAnalyzer.get_scheme_data_clean(match['schemeCode'])
+            if not df.empty:
+                mets = MutualFundAnalyzer.calculate_metrics(df)
+                row = {
+                    "User Name": user_fund,
+                    "Matched API Name": match['schemeName'], # Verify this!
+                    "Latest NAV": mets.get('Latest NAV'),
+                    "1Y (%)": mets.get('1Y'),
+                    "3Y (%)": mets.get('3Y'),
+                    "5Y (%)": mets.get('5Y')
+                }
+                results.append(row)
+        
+        time.sleep(0.01)
+
+    if results:
+        df_res = pd.DataFrame(results)
+        st.dataframe(
+            df_res.style.format("{:.2f}", subset=["Latest NAV", "1Y (%)", "3Y (%)", "5Y (%)"])
+            .background_gradient(subset=["1Y (%)", "3Y (%)"], cmap="RdYlGn"),
+            use_container_width=True,
+            height=600
+        )
     else:
-        st.warning("No matching funds found in the API database.")
+        st.warning("No valid data found. Try verifying fund names.")
 
 if __name__ == "__main__":
     main()
