@@ -12,7 +12,6 @@ import re
 BASE_URL = "https://api.mfapi.in"
 
 # --- USER DEFINED FUND LIST (STRICT FILTER) ---
-# This dictionary contains the exact funds requested.
 USER_FUNDS_CONFIG = {
     "LARGE CAP": [
         "Aditya Birla SL Large Cap Fund-Reg(G)", "Axis Large Cap Fund-Reg(G)", "Bajaj Finserv Large Cap Fund-Reg(G)",
@@ -161,15 +160,13 @@ class FundNameMatcher:
         # 2. Filter Growth vs IDCW
         has_idcw = "idcw" in api_name or "dividend" in api_name
         if search_criteria["is_idcw"] != has_idcw:
-            # User wanted IDCW but this is Growth (or vice versa)
             return 0.0
             
         # 3. Keyword Matching
         match_score = 0
         search_terms = [t.lower() for t in search_criteria["search_terms"]]
         
-        # Check if all key terms are present (AMC Name, Type)
-        # We give higher weight to the first word (AMC name)
+        # Check if all key terms are present (AMC Name)
         if search_terms[0] not in api_name:
             return 0.0
             
@@ -214,19 +211,18 @@ class MutualFundAnalyzer:
                     best_score = score
                     best_match = scheme
             
-            # Threshold for accepting a match (0.4 is lenient but safe given the strict filtering steps)
-            if best_match and best_score > 0.4:
-                # Inject the user's preferred name for display consistency
-                best_match['displayName'] = user_fund_name 
+            # INCREASED THRESHOLD: 0.55 prevents matching "Large Cap" to "Long Term Advantage"
+            if best_match and best_score > 0.55:
+                best_match['displayName'] = user_fund_name
+                best_match['matchScore'] = best_score # Store score for debug
                 matched_schemes.append(best_match)
-            # Optional: Else log missing fund
             
         return matched_schemes
 
     @staticmethod
     @st.cache_data(ttl=86400, show_spinner=False)
     def get_scheme_data(scheme_code: str) -> pd.DataFrame:
-        """Fetch historical NAV data for a single scheme."""
+        """Fetch historical NAV data for a single scheme with Outlier Cleaning."""
         try:
             response = requests.get(f"{BASE_URL}/mf/{scheme_code}", timeout=10)
             response.raise_for_status()
@@ -239,11 +235,29 @@ class MutualFundAnalyzer:
             df['date'] = pd.to_datetime(df['date'], format='%d-%m-%Y')
             df['nav'] = pd.to_numeric(df['nav'], errors='coerce')
             
-            # Data Cleaning: Remove non-positive NAVs which cause calculation errors
+            # 1. Basic Cleaning
             df = df[df['nav'] > 0]
-            
-            # Sort by date ascending
             df = df.dropna().sort_values('date').set_index('date')
+            
+            if len(df) < 5: return pd.DataFrame()
+
+            # 2. OUTLIER REMOVAL (The Fix for 1000% returns)
+            # Remove days where NAV jumps or drops > 20% in a single day (Data Glitches)
+            # Exception: Splits usually drop NAV by 50% or 90%, but return calc handles that if adjusted.
+            # MFAPI gives raw NAV. If a split happens, raw NAV drops, returns look -50%. 
+            # If a glitch happens (0.01 NAV), returns look +5000%.
+            
+            pct_change = df['nav'].pct_change()
+            # We keep rows where change is less than 20% OR it's the first row
+            mask = (pct_change.abs() < 0.20)
+            mask.iloc[0] = True 
+            
+            # If we lose too much data, revert (means it might be a split we can't handle yet)
+            df_clean = df[mask]
+            
+            if len(df_clean) > len(df) * 0.5:
+                df = df_clean
+
             return df
         except Exception:
             return pd.DataFrame()
@@ -282,16 +296,16 @@ class MutualFundAnalyzer:
         for label, delta in periods.items():
             target_date = latest_date - delta
             
-            # Find closest date
-            idx_loc = df.index.get_indexer([target_date], method='pad')[0]
+            idx_loc = df.index.get_indexer([target_date], method='nearest')[0]
             
             if idx_loc != -1:
                 past_date = df.index[idx_loc]
                 past_nav = df.loc[past_date, 'nav']
                 days_diff = (latest_date - past_date).days
                 
-                # Check if data point is relevant (within 7 days margin)
-                if days_diff >= (delta.days - 10): 
+                # Check if data point is strictly relevant (within margin)
+                # If we asked for 1 Year but the nearest data is 2 months ago, ignore it.
+                if abs(days_diff - delta.days) < 15: 
                     if "CAGR" in label:
                         returns[label] = MutualFundAnalyzer.calculate_cagr(past_nav, latest_nav, days_diff)
                     else:
@@ -384,7 +398,8 @@ def process_funds_batch(matched_schemes: List[Dict], rf_rate: float) -> pd.DataF
             mdd = MutualFundAnalyzer.calculate_max_drawdown(df)
             
             row = {
-                'Fund Name': scheme.get('displayName', scheme['schemeName']), # Use user name preference
+                'Requested Name': scheme.get('displayName'),
+                'Actual API Name': scheme['schemeName'], # VITAL FOR DEBUGGING
                 'Latest NAV': df['nav'].iloc[-1],
                 '1W (%)': metrics['1W'],
                 '1M (%)': metrics['1M'],
@@ -437,7 +452,7 @@ def main():
     if len(matched) < len(target_list):
         found_names = [m.get('displayName') for m in matched]
         missing = [f for f in target_list if f not in found_names]
-        with st.expander("See funds with no matching data (likely new or name mismatch)"):
+        with st.expander("Funds Not Found (Check Naming):"):
             st.write(missing)
 
     # 3. Process Data
@@ -447,6 +462,7 @@ def main():
         if not df_results.empty:
             # Display
             st.subheader("Performance Matrix")
+            st.markdown("Check 'Actual API Name' column to ensure the correct fund was matched.")
             
             format_dict = {
                 'Latest NAV': '₹{:.2f}',
