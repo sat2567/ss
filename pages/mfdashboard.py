@@ -11,7 +11,7 @@ import re
 # --- Configuration ---
 BASE_URL = "https://api.mfapi.in"
 
-# --- USER DEFINED FUND LIST ---
+# --- USER DEFINED FUND LIST (Same as before) ---
 USER_FUNDS_CONFIG = {
     "LARGE CAP": [
         "Aditya Birla SL Large Cap Fund", "Axis Large Cap Fund", "Bajaj Finserv Large Cap Fund",
@@ -69,31 +69,19 @@ USER_FUNDS_CONFIG = {
 CATEGORY_RULES = {
     "LARGE CAP": {
         "required": ["large cap", "largecap", "bluechip", "frontline", "top 100"],
-        "forbidden": [
-            "mid", "small", "flexi", "multi", "focused", "opportunities", 
-            "active", "advantage", "balanced", "hybrid", "tax", "elss", 
-            "index", "etf", "nifty", "sensex", "passive", "overseas", "global", "quant"
-        ]
+        "forbidden": ["mid", "small", "flexi", "multi", "focused", "opportunities", "active", "advantage", "balanced", "hybrid", "tax", "elss", "index", "etf", "nifty", "sensex", "passive", "overseas", "global", "quant"]
     },
     "MID CAP": {
         "required": ["mid cap", "midcap", "emerging", "growth", "prima"],
-        "forbidden": [
-            "large", "small", "bluechip", "frontline", "flexi", "multi", 
-            "focused", "opportunities", "index", "etf", "hybrid", "balanced"
-        ]
+        "forbidden": ["large", "small", "bluechip", "frontline", "flexi", "multi", "focused", "opportunities", "index", "etf", "hybrid", "balanced"]
     },
     "SMALL CAP": {
         "required": ["small cap", "smallcap", "emerging", "discovery"],
-        "forbidden": [
-            "large", "mid", "bluechip", "frontline", "flexi", "multi", 
-            "focused", "index", "etf", "hybrid"
-        ]
+        "forbidden": ["large", "mid", "bluechip", "frontline", "flexi", "multi", "focused", "index", "etf", "hybrid"]
     },
     "LARGE & MID CAP": {
         "required": ["large & mid", "large and mid", "large & midcap", "large and midcap"],
-        "forbidden": [
-            "small", "flexi", "multi", "bluechip", "focused", "index", "etf"
-        ]
+        "forbidden": ["small", "flexi", "multi", "bluechip", "focused", "index", "etf"]
     }
 }
 
@@ -174,6 +162,7 @@ class MutualFundAnalyzer:
             df['nav'] = pd.to_numeric(df['nav'], errors='coerce')
             df = df[df['nav'] > 0].dropna().sort_values('date').set_index('date')
             
+            # Remove Spikes (>20% daily change)
             pct = df['nav'].pct_change()
             mask = (pct.abs() < 0.20)
             mask.iloc[0] = True
@@ -184,14 +173,18 @@ class MutualFundAnalyzer:
 
     @staticmethod
     def calculate_metrics(df: pd.DataFrame) -> Dict:
-        if len(df) < 30: return {}
+        # Default all keys to NaN to ensure they exist in output
+        default_keys = ['Latest NAV', 'Latest Date', '1W', '2W', '3W', '1M', '1Y', '3Y', '5Y']
+        metrics = {k: np.nan for k in default_keys}
+
+        if len(df) < 15: return metrics
         
         latest_nav = df['nav'].iloc[-1]
         last_date = df.index[-1]
         
-        metrics = {'Latest NAV': latest_nav}
+        metrics['Latest NAV'] = latest_nav
+        metrics['Latest Date'] = last_date.strftime('%Y-%m-%d')
         
-        # ADDED SHORT TERM PERIODS HERE
         periods = {
             '1W': 7, 
             '2W': 14, 
@@ -204,32 +197,36 @@ class MutualFundAnalyzer:
         
         for lbl, days in periods.items():
             target_date = last_date - timedelta(days=days)
-            # Find nearest available date within a tolerance
+            # Find nearest date
             idx = df.index.get_indexer([target_date], method='nearest')[0]
             
-            # Tolerance for missing data: 5 days for short term, 20 days for long term
+            # Tolerance: 5 days for short term, 20 days for long term
             tolerance = 5 if days < 60 else 20
             
             if idx != -1 and abs((df.index[idx] - target_date).days) < tolerance:
                 start_nav = df['nav'].iloc[idx]
                 
                 if days < 365:
-                    # ABSOLUTE RETURN for < 1 Year
+                    # Absolute Return
                     ret = ((latest_nav - start_nav) / start_nav) * 100
                 else:
-                    # CAGR for >= 1 Year
+                    # CAGR
                     years = days/365
                     ret = ((latest_nav/start_nav)**(1/years) - 1)*100
                     
                 metrics[lbl] = ret
-            else:
-                metrics[lbl] = np.nan
+                
         return metrics
 
 def main():
     st.set_page_config(layout="wide", page_title="Smart Fund Analyzer")
     st.sidebar.title("Fund Analyzer")
     
+    # Add a button to clear cache if data is missing
+    if st.sidebar.button("Clear Cache & Refresh"):
+        st.cache_data.clear()
+        st.rerun()
+
     category = st.sidebar.selectbox("Select Category", list(USER_FUNDS_CONFIG.keys()))
     
     st.title(f"Detailed Analysis: {category}")
@@ -258,35 +255,52 @@ def main():
             df = MutualFundAnalyzer.get_scheme_data_clean(match['schemeCode'])
             if not df.empty:
                 mets = MutualFundAnalyzer.calculate_metrics(df)
+                
                 row = {
                     "User Name": user_fund,
                     "Matched API Name": match['schemeName'],
-                    "Latest NAV": mets.get('Latest NAV'),
-                    "1W (%)": mets.get('1W'),
-                    "2W (%)": mets.get('2W'),
-                    "3W (%)": mets.get('3W'),
-                    "1M (%)": mets.get('1M'),
-                    "1Y (%)": mets.get('1Y'),
-                    "3Y (%)": mets.get('3Y'),
-                    "5Y (%)": mets.get('5Y')
+                    "Latest Date": mets['Latest Date'],
+                    "Latest NAV": mets['Latest NAV'],
+                    "1W (%)": mets['1W'],
+                    "2W (%)": mets['2W'],
+                    "3W (%)": mets['3W'],
+                    "1M (%)": mets['1M'],
+                    "1Y (%)": mets['1Y'],
+                    "3Y (%)": mets['3Y'],
+                    "5Y (%)": mets['5Y']
                 }
                 results.append(row)
         
-        time.sleep(0.01)
+        time.sleep(0.01) # Tiny sleep to keep UI responsive
 
     status_text.empty()
     
     if results:
         df_res = pd.DataFrame(results)
         
-        # Setup columns for formatting
-        cols_to_format = ["Latest NAV", "1W (%)", "2W (%)", "3W (%)", "1M (%)", "1Y (%)", "3Y (%)", "5Y (%)"]
+        # --- EXPLICIT COLUMN ORDERING ---
+        # This forces the columns to appear in this specific order
+        desired_order = [
+            "User Name", "Matched API Name", "Latest Date", "Latest NAV", 
+            "1W (%)", "2W (%)", "3W (%)", "1M (%)", 
+            "1Y (%)", "3Y (%)", "5Y (%)"
+        ]
+        
+        # Filter to only columns that actually exist in df_res (safety check)
+        final_cols = [c for c in desired_order if c in df_res.columns]
+        df_res = df_res[final_cols]
+
+        # Setup formatting columns (exclude Name/Date)
+        cols_to_format = [c for c in final_cols if "Name" not in c and "Date" not in c]
         
         st.dataframe(
             df_res.style.format("{:.2f}", subset=cols_to_format)
             .background_gradient(subset=["1W (%)", "1M (%)", "1Y (%)"], cmap="RdYlGn"),
             use_container_width=True,
-            height=600
+            height=600,
+            column_config={
+                "Latest Date": st.column_config.DateColumn("Nav Date", format="DD-MM-YYYY"),
+            }
         )
     else:
         st.warning("No valid data found.")
