@@ -11,7 +11,7 @@ import re
 # --- Configuration ---
 BASE_URL = "https://api.mfapi.in"
 
-# --- USER DEFINED FUND LIST (Same as before) ---
+# --- USER DEFINED FUND LIST ---
 USER_FUNDS_CONFIG = {
     "LARGE CAP": [
         "Aditya Birla SL Large Cap Fund", "Axis Large Cap Fund", "Bajaj Finserv Large Cap Fund",
@@ -141,7 +141,7 @@ class FundNameMatcher:
 
 class MutualFundAnalyzer:
     @staticmethod
-    @st.cache_data(ttl=86400, show_spinner=False)
+    @st.cache_data(ttl=3600, show_spinner=False)
     def get_all_schemes() -> List[Dict]:
         try:
             response = requests.get(f"{BASE_URL}/mf", timeout=30)
@@ -150,7 +150,8 @@ class MutualFundAnalyzer:
         except: return []
 
     @staticmethod
-    @st.cache_data(ttl=86400)
+    # Lowered TTL to ensure we don't hold bad data
+    @st.cache_data(ttl=600)
     def get_scheme_data_clean(scheme_code: str) -> pd.DataFrame:
         try:
             response = requests.get(f"{BASE_URL}/mf/{scheme_code}", timeout=10)
@@ -160,52 +161,68 @@ class MutualFundAnalyzer:
             df = pd.DataFrame(data['data'])
             df['date'] = pd.to_datetime(df['date'], format='%d-%m-%Y')
             df['nav'] = pd.to_numeric(df['nav'], errors='coerce')
-            df = df[df['nav'] > 0].dropna().sort_values('date').set_index('date')
             
-            # Remove Spikes (>20% daily change)
-            pct = df['nav'].pct_change()
-            mask = (pct.abs() < 0.20)
-            mask.iloc[0] = True
-            df = df[mask]
+            # Remove 0 or negative NAVs
+            df = df[df['nav'] > 0].dropna()
+            
+            # Sort is CRITICAL for asof()
+            df = df.sort_values('date')
+            
+            # Set index and remove duplicates
+            df = df.set_index('date')
+            df = df[~df.index.duplicated(keep='last')]
             
             return df
         except: return pd.DataFrame()
 
     @staticmethod
     def calculate_metrics(df: pd.DataFrame) -> Dict:
-        # Default all keys to NaN to ensure they exist in output
-        default_keys = ['Latest NAV', 'Latest Date', '1W', '2W', '3W', '1M', '1Y', '3Y', '5Y']
-        metrics = {k: np.nan for k in default_keys}
+        """
+        Robust metric calculation using 'asof' to find nearest past date.
+        """
+        # Define exact output keys
+        metrics = {
+            'Latest NAV': np.nan,
+            '1-Week': np.nan, '2-Weeks': np.nan, '3-Weeks': np.nan, '1-Month': np.nan,
+            '1-Year': np.nan, '3-Year': np.nan, '5-Year': np.nan
+        }
 
-        if len(df) < 15: return metrics
+        if len(df) < 7: return metrics # Not enough data
         
         latest_nav = df['nav'].iloc[-1]
         last_date = df.index[-1]
         
         metrics['Latest NAV'] = latest_nav
-        metrics['Latest Date'] = last_date.strftime('%Y-%m-%d')
         
-        periods = {
-            '1W': 7, 
-            '2W': 14, 
-            '3W': 21, 
-            '1M': 30,
-            '1Y': 365, 
-            '3Y': 365*3, 
-            '5Y': 365*5
+        # Configuration for periods
+        period_days = {
+            '1-Week': 7,
+            '2-Weeks': 14,
+            '3-Weeks': 21,
+            '1-Month': 30,
+            '1-Year': 365,
+            '3-Year': 365*3,
+            '5-Year': 365*5
         }
         
-        for lbl, days in periods.items():
+        for key, days in period_days.items():
             target_date = last_date - timedelta(days=days)
-            # Find nearest date
-            idx = df.index.get_indexer([target_date], method='nearest')[0]
             
-            # Tolerance: 5 days for short term, 20 days for long term
-            tolerance = 5 if days < 60 else 20
-            
-            if idx != -1 and abs((df.index[idx] - target_date).days) < tolerance:
-                start_nav = df['nav'].iloc[idx]
+            # .asof() finds the NAV at target_date, or the most recent one before it.
+            # This handles weekends/holidays automatically.
+            try:
+                # We slice the dataframe to ensure we are looking at valid history
+                if target_date < df.index[0]:
+                    metrics[key] = np.nan
+                    continue
+                    
+                start_nav = df['nav'].asof(target_date)
                 
+                if pd.isna(start_nav):
+                    metrics[key] = np.nan
+                    continue
+
+                # Calculation
                 if days < 365:
                     # Absolute Return
                     ret = ((latest_nav - start_nav) / start_nav) * 100
@@ -213,9 +230,11 @@ class MutualFundAnalyzer:
                     # CAGR
                     years = days/365
                     ret = ((latest_nav/start_nav)**(1/years) - 1)*100
-                    
-                metrics[lbl] = ret
                 
+                metrics[key] = ret
+            except:
+                metrics[key] = np.nan
+
         return metrics
 
 def main():
@@ -223,20 +242,20 @@ def main():
     st.sidebar.title("Fund Analyzer")
     
     # 1. Force Cache Clear Button
-    if st.sidebar.button("⚠️ Hard Reset (Click if data missing)"):
+    if st.sidebar.button("Refresh Data"):
         st.cache_data.clear()
         st.rerun()
 
     category = st.sidebar.selectbox("Select Category", list(USER_FUNDS_CONFIG.keys()))
     
-    st.title(f"Detailed Analysis: {category}")
-    st.info("✅ Tracking: 1-Week, 2-Weeks, 3-Weeks, 1-Month, 1-Year, 3-Year, 5-Year")
+    st.title(f"Analysis: {category}")
+    st.info("✅ Short Term (<1Y): Absolute Returns | Long Term (>1Y): CAGR")
 
-    with st.spinner("Fetching Master Data..."):
+    with st.spinner("Connecting to API..."):
         all_schemes = MutualFundAnalyzer.get_all_schemes()
 
     if not all_schemes:
-        st.error("API Down.")
+        st.error("API Error. Please try again later.")
         return
 
     target_funds = USER_FUNDS_CONFIG[category]
@@ -245,9 +264,13 @@ def main():
     progress = st.progress(0)
     status_text = st.empty()
     
+    # Debug container
+    with st.expander("Show Calculation Debugger (Click if data looks missing)", expanded=False):
+        debug_container = st.container()
+    
     for i, user_fund in enumerate(target_funds):
         progress.progress((i+1)/len(target_funds))
-        status_text.text(f"Processing: {user_fund}")
+        status_text.text(f"Fetching: {user_fund}")
         
         match = FundNameMatcher.get_best_match(user_fund, all_schemes, category)
         
@@ -256,19 +279,25 @@ def main():
             if not df.empty:
                 mets = MutualFundAnalyzer.calculate_metrics(df)
                 
-                # We build the row with NEW column names to force display
+                # Direct mapping - Keys match calculate_metrics output exactly
                 row = {
                     "Fund Name": user_fund,
+                    "API Name": match['schemeName'],
                     "Latest NAV": mets['Latest NAV'],
-                    "1-Week": mets['1W'],
-                    "2-Weeks": mets['2W'],
-                    "3-Weeks": mets['3W'],
-                    "1-Month": mets['1M'],
-                    "1-Year": mets['1Y'],
-                    "3-Year": mets['3Y'],
-                    "5-Year": mets['5Y']
+                    "1-Week": mets['1-Week'],
+                    "2-Weeks": mets['2-Weeks'],
+                    "3-Weeks": mets['3-Weeks'],
+                    "1-Month": mets['1-Month'],
+                    "1-Year": mets['1-Year'],
+                    "3-Year": mets['3-Year'],
+                    "5-Year": mets['5-Year']
                 }
                 results.append(row)
+                
+                # Print the first successful calculation to debug area
+                if len(results) == 1:
+                    debug_container.write(f"Debug First Fund ({user_fund}):")
+                    debug_container.write(mets)
         
         time.sleep(0.01)
 
@@ -277,28 +306,25 @@ def main():
     if results:
         df_res = pd.DataFrame(results)
         
-        # 2. Explicit Column Ordering
-        desired_order = [
+        # Explicit Column Order
+        cols = [
             "Fund Name", "Latest NAV", 
             "1-Week", "2-Weeks", "3-Weeks", "1-Month", 
             "1-Year", "3-Year", "5-Year"
         ]
         
-        # Ensure we only select columns that exist
-        final_cols = [c for c in desired_order if c in df_res.columns]
-        df_res = df_res[final_cols]
+        # Filter existing columns
+        final_cols = [c for c in cols if c in df_res.columns]
         
-        # 3. DEBUG: Check if data exists
-        # st.write("Debug Data Preview:", df_res.head()) 
-
-        # 4. RENDER TABLE WITH NEW KEY
-        # 'key="new_table_v2"' FORCES Streamlit to forget old column settings
         st.dataframe(
-            df_res.style.format("{:.2f}", subset=[c for c in final_cols if c != "Fund Name"])
+            df_res[final_cols].style.format("{:.2f}", subset=[c for c in final_cols if c != "Fund Name"])
             .background_gradient(subset=["1-Week", "1-Month", "1-Year"], cmap="RdYlGn"),
             use_container_width=True,
             height=600,
-            key="new_table_v2_fixed" 
+            key=f"df_{category}_final" # Unique key per category prevents ghost columns
         )
     else:
-        st.warning("No valid data found.")
+        st.warning("No data found. The API might be rate-limiting or down.")
+
+if __name__ == "__main__":
+    main()
