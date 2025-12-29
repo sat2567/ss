@@ -3,7 +3,7 @@ import requests
 import pandas as pd
 from datetime import timedelta
 import time
-from typing import Dict, List
+from typing import Dict, List, Optional
 import numpy as np
 import difflib
 import re
@@ -66,24 +66,37 @@ USER_FUNDS_CONFIG = {
 }
 
 # --- STRICT CATEGORY RULES ---
-# "Forbidden": If these words appear in the API result, REJECT IT.
-# "Synonyms": If the user says "Large Cap", also accept "Bluechip" or "Frontline"
+# 1. REQUIRED: The matched name MUST contain at least one of these.
+# 2. FORBIDDEN: The matched name MUST NOT contain any of these.
 CATEGORY_RULES = {
     "LARGE CAP": {
-        "forbidden": ["Mid", "Small", "Flexi", "Multi", "Silver", "Gold", "ETF", "Index", "Nifty", "Sensex", "Passive", "Overseas", "Global"],
-        "synonyms": ["Bluechip", "Frontline", "Top 100", "Focused", "Leaders", "Equity"]
+        "required": ["large cap", "largecap", "bluechip", "frontline", "top 100"],
+        "forbidden": [
+            "mid", "small", "flexi", "multi", "focused", "opportunities", 
+            "active", "advantage", "balanced", "hybrid", "tax", "elss", 
+            "index", "etf", "nifty", "sensex", "passive", "overseas", "global", "quant"
+            # Note: 'quant' matches the AMC, so be careful. Handled in code by checking if it's the AMC name or category.
+        ]
     },
     "MID CAP": {
-        "forbidden": ["Large", "Small", "Bluechip", "Frontline", "Flexi", "Multi", "Silver", "Gold", "ETF", "Index"],
-        "synonyms": ["Emerging", "Growth", "Prima"]
+        "required": ["mid cap", "midcap", "emerging", "growth", "prima"],
+        "forbidden": [
+            "large", "small", "bluechip", "frontline", "flexi", "multi", 
+            "focused", "opportunities", "index", "etf", "hybrid", "balanced"
+        ]
     },
     "SMALL CAP": {
-        "forbidden": ["Large", "Mid", "Bluechip", "Frontline", "Flexi", "Multi", "Silver", "Gold", "ETF"],
-        "synonyms": ["Emerging", "Discovery"]
+        "required": ["small cap", "smallcap", "emerging", "discovery"],
+        "forbidden": [
+            "large", "mid", "bluechip", "frontline", "flexi", "multi", 
+            "focused", "index", "etf", "hybrid"
+        ]
     },
     "LARGE & MID CAP": {
-        "forbidden": ["Small", "Flexi", "Multi", "Silver", "Gold", "ETF", "Bluechip"], 
-        "synonyms": ["Equity"] 
+        "required": ["large & mid", "large and mid", "large & midcap", "large and midcap"],
+        "forbidden": [
+            "small", "flexi", "multi", "bluechip", "focused", "index", "etf"
+        ]
     }
 }
 
@@ -98,42 +111,50 @@ class FundNameMatcher:
         name = re.sub(r'[-\s]*direct\s*plan', '', name)
         name = re.sub(r'[-\s]*growth\s*option', '', name)
         name = re.sub(r'\((g|idcw|d)\)', '', name)
+        
+        # Standardize AMC names
         name = name.replace("aditya birla sl", "aditya birla sun life")
         name = name.replace("canara rob", "canara robeco")
         name = name.replace("woc", "whiteoak")
         return name.strip()
 
     @staticmethod
-    def check_category_constraints(api_name_clean: str, category: str) -> bool:
-        """Returns False if the fund violates strict category rules."""
+    def check_category_constraints(api_name_clean: str, category: str, amc_name: str) -> bool:
+        """
+        Returns False if the fund violates strict category rules.
+        """
         rules = CATEGORY_RULES.get(category, {})
+        required = rules.get("required", [])
         forbidden = rules.get("forbidden", [])
         
-        # Check forbidden words
+        # 1. MUST HAVE Requirement (The "Positive" Filter)
+        # The fund name matches MUST contain at least one required token
+        has_required = any(req in api_name_clean for req in required)
+        if not has_required:
+            return False
+
+        # 2. MUST NOT HAVE Requirement (The "Negative" Filter)
         for bad_word in forbidden:
-            # We look for bad words as distinct tokens (e.g. avoid banning "Middle" if looking for "Mid")
-            # But simple containment is usually safer for these specific keywords
-            if bad_word.lower() in api_name_clean:
-                return False # VIOLATION
+            # Special case: 'quant' is an AMC name but also a strategy. 
+            # If the user is looking for "Quant Large Cap", we shouldn't ban "Quant" the word.
+            if bad_word == "quant" and "quant" in amc_name:
+                continue
+                
+            # Use word boundary check to avoid partial matches if needed, 
+            # but simple containment is safer for things like "midcap" vs "mid"
+            if bad_word in api_name_clean:
+                return False 
+                
         return True
 
     @staticmethod
-    def get_best_match(user_fund_name: str, all_schemes: List[Dict], category: str) -> Dict:
-        """Finds best match while respecting category constraints."""
+    def get_best_match(user_fund_name: str, all_schemes: List[Dict], category: str) -> Optional[Dict]:
+        """Finds best match using strict category enforcement."""
         
         clean_user = FundNameMatcher.clean_name(user_fund_name)
-        
-        # 1. Expand User Query with Synonyms
-        # If user says "SBI Large Cap", we also want to look for "SBI Bluechip"
-        search_candidates = [clean_user]
-        rules = CATEGORY_RULES.get(category, {})
-        
-        # Try swapping "Large Cap" with "Bluechip" etc.
-        base_amc = clean_user.replace("large cap", "").replace("mid cap", "").replace("small cap", "").replace("fund", "").strip()
-        
-        if category == "LARGE CAP":
-            for syn in rules.get("synonyms", []):
-                search_candidates.append(f"{base_amc} {syn.lower()}")
+        # Extract implied AMC name for safety check (first 2 words usually)
+        user_tokens = clean_user.split()
+        amc_token = user_tokens[0] if user_tokens else ""
 
         best_match = None
         best_score = 0.0
@@ -141,38 +162,37 @@ class FundNameMatcher:
         for scheme in all_schemes:
             api_name_raw = scheme["schemeName"]
             
-            # Fast Filters
+            # Fast Filters (Basic)
             if "Direct" in api_name_raw: continue
             if "IDCW" in api_name_raw or "Dividend" in api_name_raw: continue
             
             clean_api = FundNameMatcher.clean_name(api_name_raw)
 
+            # 1. AMC MATCH CHECK (Critical)
+            # If user asks for "SBI", the result MUST have "SBI"
+            if amc_token not in clean_api:
+                continue
+
             # 2. STRICT CATEGORY FILTER
-            if not FundNameMatcher.check_category_constraints(clean_api, category):
+            # Pass the AMC name to allow exceptions (like 'Quant' AMC)
+            if not FundNameMatcher.check_category_constraints(clean_api, category, amc_token):
                 continue
 
-            # 3. AMC Match Check (Critical)
-            # The first word of user query (AMC name) MUST exist in API name
-            user_tokens = clean_user.split()
-            if user_tokens and user_tokens[0] not in clean_api:
-                continue
-
-            # 4. Fuzzy Scoring
-            # We score against ALL candidates (Original name + Synonym names)
-            current_max_score = 0
-            for candidate in search_candidates:
-                score = difflib.SequenceMatcher(None, candidate, clean_api).ratio()
-                if score > current_max_score:
-                    current_max_score = score
+            # 3. Fuzzy Scoring
+            # We score the match. Since we have already filtered strictly, 
+            # we can trust high scores more.
+            score = difflib.SequenceMatcher(None, clean_user, clean_api).ratio()
             
-            if current_max_score > best_score:
-                best_score = current_max_score
+            if score > best_score:
+                best_score = score
                 best_match = scheme
 
         # Threshold
         if best_score > 0.50:
-            best_match['matchScore'] = best_score
+            # Final sanity check: Print if the match seems weird during debug
+            # print(f"Matched: {clean_user} -> {best_match['schemeName']} ({best_score})")
             return best_match
+            
         return None
 
 class MutualFundAnalyzer:
@@ -239,7 +259,7 @@ def main():
     category = st.sidebar.selectbox("Select Category", list(USER_FUNDS_CONFIG.keys()))
     
     st.title(f"Strict Analysis: {category}")
-    st.info("Now using 'Negative Filtering' to strictly ban Funds from other categories (e.g., banning 'Mid' when searching for 'Large').")
+    st.info("Strict Mode Active: Funds must contain exact category keywords (e.g. 'Bluechip', 'Large Cap') and exclude 'Focused'/'Flexi'.")
 
     with st.spinner("Fetching Master Data..."):
         all_schemes = MutualFundAnalyzer.get_all_schemes()
@@ -253,9 +273,11 @@ def main():
     results = []
     
     progress = st.progress(0)
+    status_text = st.empty()
     
     for i, user_fund in enumerate(target_funds):
         progress.progress((i+1)/len(target_funds))
+        status_text.text(f"Processing: {user_fund}")
         
         # INTELLIGENT MATCHING
         match = FundNameMatcher.get_best_match(user_fund, all_schemes, category)
@@ -266,7 +288,7 @@ def main():
                 mets = MutualFundAnalyzer.calculate_metrics(df)
                 row = {
                     "User Name": user_fund,
-                    "Matched API Name": match['schemeName'], # Verify this!
+                    "Matched API Name": match['schemeName'],
                     "Latest NAV": mets.get('Latest NAV'),
                     "1Y (%)": mets.get('1Y'),
                     "3Y (%)": mets.get('3Y'),
@@ -276,6 +298,8 @@ def main():
         
         time.sleep(0.01)
 
+    status_text.empty()
+    
     if results:
         df_res = pd.DataFrame(results)
         st.dataframe(
