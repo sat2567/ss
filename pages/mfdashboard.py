@@ -222,15 +222,15 @@ def main():
     st.set_page_config(layout="wide", page_title="Smart Fund Analyzer")
     st.sidebar.title("Fund Analyzer")
     
-    # Add a button to clear cache if data is missing
-    if st.sidebar.button("Clear Cache & Refresh"):
+    # 1. Force Cache Clear Button
+    if st.sidebar.button("⚠️ Hard Reset (Click if data missing)"):
         st.cache_data.clear()
         st.rerun()
 
     category = st.sidebar.selectbox("Select Category", list(USER_FUNDS_CONFIG.keys()))
     
     st.title(f"Detailed Analysis: {category}")
-    st.info("Showing Absolute Returns for <1Y and CAGR for >1Y.")
+    st.info("✅ Tracking: 1-Week, 2-Weeks, 3-Weeks, 1-Month, 1-Year, 3-Year, 5-Year")
 
     with st.spinner("Fetching Master Data..."):
         all_schemes = MutualFundAnalyzer.get_all_schemes()
@@ -256,54 +256,49 @@ def main():
             if not df.empty:
                 mets = MutualFundAnalyzer.calculate_metrics(df)
                 
+                # We build the row with NEW column names to force display
                 row = {
-                    "User Name": user_fund,
-                    "Matched API Name": match['schemeName'],
-                    "Latest Date": mets['Latest Date'],
+                    "Fund Name": user_fund,
                     "Latest NAV": mets['Latest NAV'],
-                    "1W (%)": mets['1W'],
-                    "2W (%)": mets['2W'],
-                    "3W (%)": mets['3W'],
-                    "1M (%)": mets['1M'],
-                    "1Y (%)": mets['1Y'],
-                    "3Y (%)": mets['3Y'],
-                    "5Y (%)": mets['5Y']
+                    "1-Week": mets['1W'],
+                    "2-Weeks": mets['2W'],
+                    "3-Weeks": mets['3W'],
+                    "1-Month": mets['1M'],
+                    "1-Year": mets['1Y'],
+                    "3-Year": mets['3Y'],
+                    "5-Year": mets['5Y']
                 }
                 results.append(row)
         
-        time.sleep(0.01) # Tiny sleep to keep UI responsive
+        time.sleep(0.01)
 
     status_text.empty()
     
     if results:
         df_res = pd.DataFrame(results)
         
-        # --- EXPLICIT COLUMN ORDERING ---
-        # This forces the columns to appear in this specific order
+        # 2. Explicit Column Ordering
         desired_order = [
-            "User Name", "Matched API Name", "Latest Date", "Latest NAV", 
-            "1W (%)", "2W (%)", "3W (%)", "1M (%)", 
-            "1Y (%)", "3Y (%)", "5Y (%)"
+            "Fund Name", "Latest NAV", 
+            "1-Week", "2-Weeks", "3-Weeks", "1-Month", 
+            "1-Year", "3-Year", "5-Year"
         ]
         
-        # Filter to only columns that actually exist in df_res (safety check)
+        # Ensure we only select columns that exist
         final_cols = [c for c in desired_order if c in df_res.columns]
         df_res = df_res[final_cols]
-
-        # Setup formatting columns (exclude Name/Date)
-        cols_to_format = [c for c in final_cols if "Name" not in c and "Date" not in c]
         
+        # 3. DEBUG: Check if data exists
+        # st.write("Debug Data Preview:", df_res.head()) 
+
+        # 4. RENDER TABLE WITH NEW KEY
+        # 'key="new_table_v2"' FORCES Streamlit to forget old column settings
         st.dataframe(
-            df_res.style.format("{:.2f}", subset=cols_to_format)
-            .background_gradient(subset=["1W (%)", "1M (%)", "1Y (%)"], cmap="RdYlGn"),
+            df_res.style.format("{:.2f}", subset=[c for c in final_cols if c != "Fund Name"])
+            .background_gradient(subset=["1-Week", "1-Month", "1-Year"], cmap="RdYlGn"),
             use_container_width=True,
             height=600,
-            column_config={
-                "Latest Date": st.column_config.DateColumn("Nav Date", format="DD-MM-YYYY"),
-            }
+            key="new_table_v2_fixed" 
         )
     else:
         st.warning("No valid data found.")
-
-if __name__ == "__main__":
-    main()
