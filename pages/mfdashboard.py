@@ -66,8 +66,6 @@ USER_FUNDS_CONFIG = {
 }
 
 # --- STRICT CATEGORY RULES ---
-# 1. REQUIRED: The matched name MUST contain at least one of these.
-# 2. FORBIDDEN: The matched name MUST NOT contain any of these.
 CATEGORY_RULES = {
     "LARGE CAP": {
         "required": ["large cap", "largecap", "bluechip", "frontline", "top 100"],
@@ -75,7 +73,6 @@ CATEGORY_RULES = {
             "mid", "small", "flexi", "multi", "focused", "opportunities", 
             "active", "advantage", "balanced", "hybrid", "tax", "elss", 
             "index", "etf", "nifty", "sensex", "passive", "overseas", "global", "quant"
-            # Note: 'quant' matches the AMC, so be careful. Handled in code by checking if it's the AMC name or category.
         ]
     },
     "MID CAP": {
@@ -101,18 +98,13 @@ CATEGORY_RULES = {
 }
 
 class FundNameMatcher:
-    
     @staticmethod
     def clean_name(name: str) -> str:
-        """Standardizes name for comparison."""
         name = name.lower()
-        # Remove standard noise
         name = re.sub(r'[-\s]*regular\s*plan', '', name)
         name = re.sub(r'[-\s]*direct\s*plan', '', name)
         name = re.sub(r'[-\s]*growth\s*option', '', name)
         name = re.sub(r'\((g|idcw|d)\)', '', name)
-        
-        # Standardize AMC names
         name = name.replace("aditya birla sl", "aditya birla sun life")
         name = name.replace("canara rob", "canara robeco")
         name = name.replace("woc", "whiteoak")
@@ -120,39 +112,21 @@ class FundNameMatcher:
 
     @staticmethod
     def check_category_constraints(api_name_clean: str, category: str, amc_name: str) -> bool:
-        """
-        Returns False if the fund violates strict category rules.
-        """
         rules = CATEGORY_RULES.get(category, {})
         required = rules.get("required", [])
         forbidden = rules.get("forbidden", [])
         
-        # 1. MUST HAVE Requirement (The "Positive" Filter)
-        # The fund name matches MUST contain at least one required token
         has_required = any(req in api_name_clean for req in required)
-        if not has_required:
-            return False
+        if not has_required: return False
 
-        # 2. MUST NOT HAVE Requirement (The "Negative" Filter)
         for bad_word in forbidden:
-            # Special case: 'quant' is an AMC name but also a strategy. 
-            # If the user is looking for "Quant Large Cap", we shouldn't ban "Quant" the word.
-            if bad_word == "quant" and "quant" in amc_name:
-                continue
-                
-            # Use word boundary check to avoid partial matches if needed, 
-            # but simple containment is safer for things like "midcap" vs "mid"
-            if bad_word in api_name_clean:
-                return False 
-                
+            if bad_word == "quant" and "quant" in amc_name: continue
+            if bad_word in api_name_clean: return False 
         return True
 
     @staticmethod
     def get_best_match(user_fund_name: str, all_schemes: List[Dict], category: str) -> Optional[Dict]:
-        """Finds best match using strict category enforcement."""
-        
         clean_user = FundNameMatcher.clean_name(user_fund_name)
-        # Extract implied AMC name for safety check (first 2 words usually)
         user_tokens = clean_user.split()
         amc_token = user_tokens[0] if user_tokens else ""
 
@@ -161,38 +135,20 @@ class FundNameMatcher:
 
         for scheme in all_schemes:
             api_name_raw = scheme["schemeName"]
-            
-            # Fast Filters (Basic)
             if "Direct" in api_name_raw: continue
             if "IDCW" in api_name_raw or "Dividend" in api_name_raw: continue
             
             clean_api = FundNameMatcher.clean_name(api_name_raw)
 
-            # 1. AMC MATCH CHECK (Critical)
-            # If user asks for "SBI", the result MUST have "SBI"
-            if amc_token not in clean_api:
-                continue
+            if amc_token not in clean_api: continue
+            if not FundNameMatcher.check_category_constraints(clean_api, category, amc_token): continue
 
-            # 2. STRICT CATEGORY FILTER
-            # Pass the AMC name to allow exceptions (like 'Quant' AMC)
-            if not FundNameMatcher.check_category_constraints(clean_api, category, amc_token):
-                continue
-
-            # 3. Fuzzy Scoring
-            # We score the match. Since we have already filtered strictly, 
-            # we can trust high scores more.
             score = difflib.SequenceMatcher(None, clean_user, clean_api).ratio()
-            
             if score > best_score:
                 best_score = score
                 best_match = scheme
 
-        # Threshold
-        if best_score > 0.50:
-            # Final sanity check: Print if the match seems weird during debug
-            # print(f"Matched: {clean_user} -> {best_match['schemeName']} ({best_score})")
-            return best_match
-            
+        if best_score > 0.50: return best_match
         return None
 
 class MutualFundAnalyzer:
@@ -218,7 +174,6 @@ class MutualFundAnalyzer:
             df['nav'] = pd.to_numeric(df['nav'], errors='coerce')
             df = df[df['nav'] > 0].dropna().sort_values('date').set_index('date')
             
-            # Remove Spikes (>20% daily change)
             pct = df['nav'].pct_change()
             mask = (pct.abs() < 0.20)
             mask.iloc[0] = True
@@ -236,18 +191,37 @@ class MutualFundAnalyzer:
         
         metrics = {'Latest NAV': latest_nav}
         
+        # ADDED SHORT TERM PERIODS HERE
         periods = {
-            '1Y': 365, '3Y': 365*3, '5Y': 365*5
+            '1W': 7, 
+            '2W': 14, 
+            '3W': 21, 
+            '1M': 30,
+            '1Y': 365, 
+            '3Y': 365*3, 
+            '5Y': 365*5
         }
         
         for lbl, days in periods.items():
             target_date = last_date - timedelta(days=days)
+            # Find nearest available date within a tolerance
             idx = df.index.get_indexer([target_date], method='nearest')[0]
-            if idx != -1 and abs((df.index[idx] - target_date).days) < 20:
+            
+            # Tolerance for missing data: 5 days for short term, 20 days for long term
+            tolerance = 5 if days < 60 else 20
+            
+            if idx != -1 and abs((df.index[idx] - target_date).days) < tolerance:
                 start_nav = df['nav'].iloc[idx]
-                years = days/365
-                cagr = ((latest_nav/start_nav)**(1/years) - 1)*100
-                metrics[lbl] = cagr
+                
+                if days < 365:
+                    # ABSOLUTE RETURN for < 1 Year
+                    ret = ((latest_nav - start_nav) / start_nav) * 100
+                else:
+                    # CAGR for >= 1 Year
+                    years = days/365
+                    ret = ((latest_nav/start_nav)**(1/years) - 1)*100
+                    
+                metrics[lbl] = ret
             else:
                 metrics[lbl] = np.nan
         return metrics
@@ -258,8 +232,8 @@ def main():
     
     category = st.sidebar.selectbox("Select Category", list(USER_FUNDS_CONFIG.keys()))
     
-    st.title(f"Strict Analysis: {category}")
-    st.info("Strict Mode Active: Funds must contain exact category keywords (e.g. 'Bluechip', 'Large Cap') and exclude 'Focused'/'Flexi'.")
+    st.title(f"Detailed Analysis: {category}")
+    st.info("Showing Absolute Returns for <1Y and CAGR for >1Y.")
 
     with st.spinner("Fetching Master Data..."):
         all_schemes = MutualFundAnalyzer.get_all_schemes()
@@ -268,7 +242,6 @@ def main():
         st.error("API Down.")
         return
 
-    # Process
     target_funds = USER_FUNDS_CONFIG[category]
     results = []
     
@@ -279,7 +252,6 @@ def main():
         progress.progress((i+1)/len(target_funds))
         status_text.text(f"Processing: {user_fund}")
         
-        # INTELLIGENT MATCHING
         match = FundNameMatcher.get_best_match(user_fund, all_schemes, category)
         
         if match:
@@ -290,6 +262,10 @@ def main():
                     "User Name": user_fund,
                     "Matched API Name": match['schemeName'],
                     "Latest NAV": mets.get('Latest NAV'),
+                    "1W (%)": mets.get('1W'),
+                    "2W (%)": mets.get('2W'),
+                    "3W (%)": mets.get('3W'),
+                    "1M (%)": mets.get('1M'),
                     "1Y (%)": mets.get('1Y'),
                     "3Y (%)": mets.get('3Y'),
                     "5Y (%)": mets.get('5Y')
@@ -302,14 +278,18 @@ def main():
     
     if results:
         df_res = pd.DataFrame(results)
+        
+        # Setup columns for formatting
+        cols_to_format = ["Latest NAV", "1W (%)", "2W (%)", "3W (%)", "1M (%)", "1Y (%)", "3Y (%)", "5Y (%)"]
+        
         st.dataframe(
-            df_res.style.format("{:.2f}", subset=["Latest NAV", "1Y (%)", "3Y (%)", "5Y (%)"])
-            .background_gradient(subset=["1Y (%)", "3Y (%)"], cmap="RdYlGn"),
+            df_res.style.format("{:.2f}", subset=cols_to_format)
+            .background_gradient(subset=["1W (%)", "1M (%)", "1Y (%)"], cmap="RdYlGn"),
             use_container_width=True,
             height=600
         )
     else:
-        st.warning("No valid data found. Try verifying fund names.")
+        st.warning("No valid data found.")
 
 if __name__ == "__main__":
     main()
