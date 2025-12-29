@@ -150,7 +150,6 @@ class MutualFundAnalyzer:
         except: return []
 
     @staticmethod
-    # Lowered TTL to ensure we don't hold bad data
     @st.cache_data(ttl=600)
     def get_scheme_data_clean(scheme_code: str) -> pd.DataFrame:
         try:
@@ -159,17 +158,19 @@ class MutualFundAnalyzer:
             if not data or 'data' not in data: return pd.DataFrame()
             
             df = pd.DataFrame(data['data'])
-            df['date'] = pd.to_datetime(df['date'], format='%d-%m-%Y')
-            df['nav'] = pd.to_numeric(df['nav'], errors='coerce')
+            # 1. Safer Date Parsing
+            df['date'] = pd.to_datetime(df['date'], format='%d-%m-%Y', errors='coerce')
+            df = df.dropna(subset=['date'])
             
-            # Remove 0 or negative NAVs
+            df['nav'] = pd.to_numeric(df['nav'], errors='coerce')
             df = df[df['nav'] > 0].dropna()
             
-            # Sort is CRITICAL for asof()
             df = df.sort_values('date')
-            
-            # Set index and remove duplicates
             df = df.set_index('date')
+            
+            # 2. REMOVE TIMEZONE INFO (Fixes 'asof' lookup errors)
+            df.index = df.index.tz_localize(None)
+            
             df = df[~df.index.duplicated(keep='last')]
             
             return df
@@ -177,63 +178,47 @@ class MutualFundAnalyzer:
 
     @staticmethod
     def calculate_metrics(df: pd.DataFrame) -> Dict:
-        """
-        Robust metric calculation using 'asof' to find nearest past date.
-        """
-        # Define exact output keys
+        # Initialize with NaN
         metrics = {
             'Latest NAV': np.nan,
             '1-Week': np.nan, '2-Weeks': np.nan, '3-Weeks': np.nan, '1-Month': np.nan,
             '1-Year': np.nan, '3-Year': np.nan, '5-Year': np.nan
         }
 
-        if len(df) < 7: return metrics # Not enough data
+        if len(df) < 7: return metrics
         
         latest_nav = df['nav'].iloc[-1]
         last_date = df.index[-1]
         
         metrics['Latest NAV'] = latest_nav
         
-        # Configuration for periods
         period_days = {
-            '1-Week': 7,
-            '2-Weeks': 14,
-            '3-Weeks': 21,
-            '1-Month': 30,
-            '1-Year': 365,
-            '3-Year': 365*3,
-            '5-Year': 365*5
+            '1-Week': 7, '2-Weeks': 14, '3-Weeks': 21, '1-Month': 30,
+            '1-Year': 365, '3-Year': 365*3, '5-Year': 365*5
         }
         
         for key, days in period_days.items():
             target_date = last_date - timedelta(days=days)
             
-            # .asof() finds the NAV at target_date, or the most recent one before it.
-            # This handles weekends/holidays automatically.
             try:
-                # We slice the dataframe to ensure we are looking at valid history
+                # Ensure target date is within valid range
                 if target_date < df.index[0]:
-                    metrics[key] = np.nan
                     continue
                     
                 start_nav = df['nav'].asof(target_date)
                 
-                if pd.isna(start_nav):
-                    metrics[key] = np.nan
+                if pd.isna(start_nav) or start_nav == 0:
                     continue
 
-                # Calculation
                 if days < 365:
-                    # Absolute Return
                     ret = ((latest_nav - start_nav) / start_nav) * 100
                 else:
-                    # CAGR
                     years = days/365
                     ret = ((latest_nav/start_nav)**(1/years) - 1)*100
                 
                 metrics[key] = ret
             except:
-                metrics[key] = np.nan
+                pass # Keeps it as NaN
 
         return metrics
 
@@ -241,19 +226,14 @@ def main():
     st.set_page_config(layout="wide", page_title="Smart Fund Analyzer")
     st.sidebar.title("Fund Analyzer")
     
-    # 1. Force Cache Clear Button
     if st.sidebar.button("Refresh Data"):
         st.cache_data.clear()
         st.rerun()
 
     category = st.sidebar.selectbox("Select Category", list(USER_FUNDS_CONFIG.keys()))
-    
     st.title(f"Analysis: {category}")
-    st.info("✅ Short Term (<1Y): Absolute Returns | Long Term (>1Y): CAGR")
 
-    with st.spinner("Connecting to API..."):
-        all_schemes = MutualFundAnalyzer.get_all_schemes()
-
+    all_schemes = MutualFundAnalyzer.get_all_schemes()
     if not all_schemes:
         st.error("API Error. Please try again later.")
         return
@@ -261,15 +241,11 @@ def main():
     target_funds = USER_FUNDS_CONFIG[category]
     results = []
     
-    progress = st.progress(0)
+    progress_bar = st.progress(0)
     status_text = st.empty()
     
-    # Debug container
-    with st.expander("Show Calculation Debugger (Click if data looks missing)", expanded=False):
-        debug_container = st.container()
-    
     for i, user_fund in enumerate(target_funds):
-        progress.progress((i+1)/len(target_funds))
+        progress_bar.progress((i+1)/len(target_funds))
         status_text.text(f"Fetching: {user_fund}")
         
         match = FundNameMatcher.get_best_match(user_fund, all_schemes, category)
@@ -279,10 +255,8 @@ def main():
             if not df.empty:
                 mets = MutualFundAnalyzer.calculate_metrics(df)
                 
-                # Direct mapping - Keys match calculate_metrics output exactly
-                row = {
+                results.append({
                     "Fund Name": user_fund,
-                    "API Name": match['schemeName'],
                     "Latest NAV": mets['Latest NAV'],
                     "1-Week": mets['1-Week'],
                     "2-Weeks": mets['2-Weeks'],
@@ -291,40 +265,37 @@ def main():
                     "1-Year": mets['1-Year'],
                     "3-Year": mets['3-Year'],
                     "5-Year": mets['5-Year']
-                }
-                results.append(row)
-                
-                # Print the first successful calculation to debug area
-                if len(results) == 1:
-                    debug_container.write(f"Debug First Fund ({user_fund}):")
-                    debug_container.write(mets)
+                })
         
-        time.sleep(0.01)
+        # INCREASED SLEEP TO PREVENT API BLOCKING
+        time.sleep(0.25)
 
     status_text.empty()
     
     if results:
         df_res = pd.DataFrame(results)
         
-        # Explicit Column Order
-        cols = [
-            "Fund Name", "Latest NAV", 
-            "1-Week", "2-Weeks", "3-Weeks", "1-Month", 
-            "1-Year", "3-Year", "5-Year"
-        ]
-        
-        # Filter existing columns
-        final_cols = [c for c in cols if c in df_res.columns]
-        
+        # 3. FORCE FLOAT CONVERSION (Vital for Streamlit display)
+        cols_to_float = ["1-Week", "2-Weeks", "3-Weeks", "1-Month", "1-Year", "3-Year", "5-Year", "Latest NAV"]
+        for col in cols_to_float:
+            if col in df_res.columns:
+                df_res[col] = pd.to_numeric(df_res[col], errors='coerce')
+
+        # 4. REORDER COLUMNS EXPLICITLY
+        desired_order = ["Fund Name"] + cols_to_float
+        final_cols = [c for c in desired_order if c in df_res.columns]
+        df_res = df_res[final_cols]
+
+        # 5. SIMPLIFIED DISPLAY (No complex subsetting)
         st.dataframe(
-            df_res[final_cols].style.format("{:.2f}", subset=[c for c in final_cols if c != "Fund Name"])
-            .background_gradient(subset=["1-Week", "1-Month", "1-Year"], cmap="RdYlGn"),
+            df_res.style.format("{:.2f}", na_rep="-", subset=cols_to_float)
+            .background_gradient(cmap="RdYlGn", subset=["1-Week", "1-Month", "1-Year"]),
             use_container_width=True,
-            height=600,
-            key=f"df_{category}_final" # Unique key per category prevents ghost columns
+            height=600
         )
+        
     else:
-        st.warning("No data found. The API might be rate-limiting or down.")
+        st.warning("No data found.")
 
 if __name__ == "__main__":
     main()
