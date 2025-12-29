@@ -225,7 +225,7 @@ class MutualFundAnalyzer:
 def main():
     st.set_page_config(layout="wide", page_title="Smart Fund Analyzer")
     st.sidebar.title("Fund Analyzer")
-    
+    st.error("⚠️ IF YOU SEE THIS, THE NEW CODE IS WORKING! ⚠️")
     if st.sidebar.button("Refresh Data"):
         st.cache_data.clear()
         st.rerun()
