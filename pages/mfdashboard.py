@@ -5,15 +5,15 @@ from datetime import timedelta
 
 # --- Configuration ---
 # Base URL for the raw content from your GitHub branch
-# NOTE: Ensure the filenames in the dictionary below match exactly what you uploaded to GitHub
 BASE_URL = "https://raw.githubusercontent.com/sat2567/ss/my-new-branch/"
 
+# Updated to use the clean Excel filenames provided
 FILES = {
-    "Large Cap": "LARGECAP1YEAR.xlsx - Aditya Birla SL Large Cap Fun1.csv",
-    "Mid Cap": "MIDCAP1Y.xlsx - sheet1.csv",
-    "Multi Cap": "MULTICAP1Y.xlsx - sheet1.csv",
-    "Small Cap": "SMALLCAP1YEAR.xlsx - sheet1.csv",
-    "Large & Mid Cap": "LARGEANDMIDCAP_2.xlsx - sheet1.csv"
+    "Large Cap": "LARGECAP1YEAR.xlsx",
+    "Mid Cap": "MIDCAP1Y.xlsx",
+    "Multi Cap": "MULTICAP1Y.xlsx",
+    "Small Cap": "SMALLCAP1YEAR.xlsx",
+    "Large & Mid Cap": "LARGEANDMIDCAP_2.xlsx"
 }
 
 # --- Helper Functions ---
@@ -50,7 +50,6 @@ def calculate_returns(df, fund_col, date_col, period_days=None, period_months=No
         return np.nan
         
     # Find the row on or closest (before) the target date
-    # Since df is sorted descending, we look for the first date <= target_date
     mask = df[date_col] <= target_date
     past_rows = df[mask]
     
@@ -70,18 +69,18 @@ def load_and_process_data():
     all_results = []
     
     for category, filename in FILES.items():
-        url = BASE_URL + filename.replace(" ", "%20") # URL encode spaces
+        # Construct the URL
+        url = BASE_URL + filename
         
         try:
-            # Logic to handle different file structures based on your previous files
             if category == "Large Cap":
-                # Special handling for Large Cap file structure
-                # 1. Get Fund Name from the first cell
-                meta = pd.read_csv(url, header=None, nrows=1)
+                # Large Cap Logic:
+                # 1. Read metadata (Row 1, Col 1) for Fund Name
+                meta = pd.read_excel(url, header=None, nrows=1, engine='openpyxl')
                 fund_name = meta.iloc[0, 0].split(">>")[0].strip()
                 
-                # 2. Read the actual data (Header starts at row 3)
-                df = pd.read_csv(url, header=3)
+                # 2. Read Data (Header is at row 4, index 3)
+                df = pd.read_excel(url, header=3, engine='openpyxl')
                 
                 # Identify NAV column
                 nav_col = 'Adjusted NAV NonCorporate(Rs)'
@@ -92,20 +91,20 @@ def load_and_process_data():
                 fund_columns = [fund_name]
                 
             else:
-                # Standard handling for Mid, Multi, Small, Large & Mid
-                # Header starts at row 2
-                df = pd.read_csv(url, header=2)
+                # Standard Logic (Mid, Small, Multi, Large&Mid):
+                # Header is at row 3 (index 2)
+                df = pd.read_excel(url, header=2, engine='openpyxl')
                 
                 # Rename first column to Date
                 df.rename(columns={df.columns[0]: 'Date'}, inplace=True)
                 
-                # Drop the units row (first row of data)
+                # Drop the first row (which usually contains units like "Rs")
                 df = df.drop(0).reset_index(drop=True)
                 
                 # Identify fund columns (all except Date)
                 fund_columns = [c for c in df.columns if c != 'Date']
 
-            # Common Cleaning
+            # --- Common Cleaning ---
             df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
             df = df.dropna(subset=['Date'])
             
@@ -143,7 +142,7 @@ st.set_page_config(page_title="Mutual Fund Returns Dashboard", layout="wide")
 st.title("📊 Mutual Fund Returns Analysis")
 st.markdown(f"Data Source: [GitHub Repository]({BASE_URL})")
 
-with st.spinner('Fetching and processing data from GitHub...'):
+with st.spinner('Fetching and processing Excel files from GitHub...'):
     df_results = load_and_process_data()
 
 if not df_results.empty:
@@ -162,9 +161,8 @@ if not df_results.empty:
     filtered_df = df_results[df_results["Category"].isin(selected_categories)]
     
     # Display Summary Metrics
-    top_performer = filtered_df.loc[filtered_df["1 Month (%)"].idxmax()] if not filtered_df.empty else None
-    
-    if top_performer is not None:
+    if not filtered_df.empty:
+        top_performer = filtered_df.loc[filtered_df["1 Month (%)"].idxmax()]
         st.info(f"🏆 **Top Performer (1 Month):** {top_performer['Fund Name']} ({top_performer['1 Month (%)']:.2f}%)")
 
     # Display Data Table
@@ -188,4 +186,4 @@ if not df_results.empty:
     )
 
 else:
-    st.warning("No data found. Please check the file paths in GitHub.")
+    st.warning("No data found. Please check that the .xlsx files are in your GitHub branch.")
