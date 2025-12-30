@@ -7,7 +7,7 @@ matplotlib
 seaborn
 plotly
 nsepython
-
+openxyl
 lxml>=5.0
 cloudscraper>=1.2.71
 brotli>=1.0
