@@ -9,7 +9,7 @@ BASE_URL = "https://raw.githubusercontent.com/sat2567/ss/my-new-branch/"
 
 # Updated to use the clean Excel filenames provided
 FILES = {
-    "Large Cap": "LARGECAP1YEAR.xlsx",
+    "Large Cap": "LARGECAP_1.xlsx",
     "Mid Cap": "MIDCAP1Y.xlsx",
     "Multi Cap": "MULTICAP1Y.xlsx",
     "Small Cap": "SMALLCAP1YEAR.xlsx",
