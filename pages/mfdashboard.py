@@ -7,7 +7,7 @@ from datetime import timedelta
 # Base URL for the raw content from your GitHub branch
 BASE_URL = "https://raw.githubusercontent.com/sat2567/ss/my-new-branch/"
 
-# Updated to use the clean Excel filenames provided
+# Files configuration
 FILES = {
     "Large Cap": "LARGECAP_1.xlsx",
     "Mid Cap": "MIDCAP1Y.xlsx",
@@ -18,9 +18,13 @@ FILES = {
 
 # --- Helper Functions ---
 
-def calculate_returns(df, fund_col, date_col, period_days=None, period_months=None, period_years=None):
+def calculate_returns(df, fund_col, date_col, period_days=None, period_months=None, period_years=None, use_earliest_if_missing=False):
     """
     Calculates the percentage return for a given period.
+    
+    Parameters:
+    - use_earliest_if_missing: If True, and the data history is shorter than the requested period,
+      it uses the earliest available date (max history) to calculate the return.
     """
     # Sort by date descending (newest first)
     df = df.sort_values(by=date_col, ascending=False).reset_index(drop=True)
@@ -38,6 +42,7 @@ def calculate_returns(df, fund_col, date_col, period_days=None, period_months=No
     latest_nav = latest_row[fund_col]
     
     # Determine target date
+    target_date = latest_date
     if period_days:
         target_date = latest_date - timedelta(days=period_days)
     elif period_months:
@@ -53,12 +58,18 @@ def calculate_returns(df, fund_col, date_col, period_days=None, period_months=No
     mask = df[date_col] <= target_date
     past_rows = df[mask]
     
-    if past_rows.empty:
-        return np.nan
-        
-    past_row = past_rows.iloc[0]
-    past_nav = past_row[fund_col]
+    past_nav = None
     
+    if not past_rows.empty:
+        # Case A: We found a date strictly before or on the target date
+        past_row = past_rows.iloc[0]
+        past_nav = past_row[fund_col]
+    elif use_earliest_if_missing:
+        # Case B: History is too short, but fallback is enabled
+        # The dataframe is sorted descending, so the last row is the oldest/earliest date
+        past_row = df.iloc[-1]
+        past_nav = past_row[fund_col]
+        
     if pd.isna(past_nav) or past_nav == 0:
         return np.nan
         
@@ -74,15 +85,12 @@ def load_and_process_data():
         
         try:
             if category == "Large Cap":
-                # Large Cap Logic:
-                # 1. Read metadata (Row 1, Col 1) for Fund Name
+                # Large Cap Logic
                 meta = pd.read_excel(url, header=None, nrows=1, engine='openpyxl')
                 fund_name = meta.iloc[0, 0].split(">>")[0].strip()
                 
-                # 2. Read Data (Header is at row 4, index 3)
                 df = pd.read_excel(url, header=3, engine='openpyxl')
                 
-                # Identify NAV column
                 nav_col = 'Adjusted NAV NonCorporate(Rs)'
                 if nav_col not in df.columns:
                      nav_col = 'NAV (Rs)'
@@ -91,17 +99,10 @@ def load_and_process_data():
                 fund_columns = [fund_name]
                 
             else:
-                # Standard Logic (Mid, Small, Multi, Large&Mid):
-                # Header is at row 3 (index 2)
+                # Standard Logic
                 df = pd.read_excel(url, header=2, engine='openpyxl')
-                
-                # Rename first column to Date
                 df.rename(columns={df.columns[0]: 'Date'}, inplace=True)
-                
-                # Drop the first row (which usually contains units like "Rs")
                 df = df.drop(0).reset_index(drop=True)
-                
-                # Identify fund columns (all except Date)
                 fund_columns = [c for c in df.columns if c != 'Date']
 
             # --- Common Cleaning ---
@@ -114,11 +115,18 @@ def load_and_process_data():
             
             # Calculate Returns for each fund
             for fund in fund_columns:
+                # Short term returns
                 r_1w = calculate_returns(df, fund, 'Date', period_days=7)
                 r_2w = calculate_returns(df, fund, 'Date', period_days=14)
                 r_3w = calculate_returns(df, fund, 'Date', period_days=21)
                 r_1m = calculate_returns(df, fund, 'Date', period_months=1)
-                r_1y = calculate_returns(df, fund, 'Date', period_years=1)
+                
+                # New Medium/Long term returns
+                r_3m = calculate_returns(df, fund, 'Date', period_months=3)
+                r_6m = calculate_returns(df, fund, 'Date', period_months=6)
+                
+                # 1 Year with fallback logic (use_earliest_if_missing=True)
+                r_1y = calculate_returns(df, fund, 'Date', period_years=1, use_earliest_if_missing=True)
                 
                 all_results.append({
                     "Category": category,
@@ -127,6 +135,8 @@ def load_and_process_data():
                     "2 Weeks (%)": r_2w,
                     "3 Weeks (%)": r_3w,
                     "1 Month (%)": r_1m,
+                    "3 Months (%)": r_3m,
+                    "6 Months (%)": r_6m,
                     "1 Year (%)": r_1y
                 })
                 
@@ -146,8 +156,8 @@ with st.spinner('Fetching and processing Excel files from GitHub...'):
     df_results = load_and_process_data()
 
 if not df_results.empty:
-    # Formatting columns
-    numeric_cols = ["1 Week (%)", "2 Weeks (%)", "3 Weeks (%)", "1 Month (%)", "1 Year (%)"]
+    # Updated Columns List
+    numeric_cols = ["1 Week (%)", "2 Weeks (%)", "3 Weeks (%)", "1 Month (%)", "3 Months (%)", "6 Months (%)", "1 Year (%)"]
     
     # Sidebar Filters
     st.sidebar.header("Filters")
@@ -162,6 +172,7 @@ if not df_results.empty:
     
     # Display Summary Metrics
     if not filtered_df.empty:
+        # Identify top performer based on 1 Month return
         top_performer = filtered_df.loc[filtered_df["1 Month (%)"].idxmax()]
         st.info(f"🏆 **Top Performer (1 Month):** {top_performer['Fund Name']} ({top_performer['1 Month (%)']:.2f}%)")
 
