@@ -6,58 +6,50 @@ from datetime import timedelta
 # --- 1. SMART CATEGORIZATION LOGIC ---
 def categorize_fund(fund_name):
     """
-    Derives the fund category based on keywords in the Fund Name.
-    Hierarchy: Commodities -> Intl/FoF -> Hybrid -> Index -> Sector -> Market Cap -> Debt.
+    Strictly categorizes funds into:
+    1. International Funds
+    2. Large & Mid Cap
+    3. Multi Cap
+    4. Large Cap
+    5. Mid Cap
+    6. Small Cap
+    7. Other / Uncategorized (Everything else)
     """
     name = fund_name.lower()
     
-    # 1. Commodities (Gold/Silver)
-    if any(x in name for x in ['gold', 'silver', 'commodity', 'bullion']):
-        return 'Commodities (Gold/Silver)'
-        
-    # 2. International / FoF
-    # As requested: All FoFs are treated as International (unless they were Gold)
-    if 'fof' in name or 'fund of fund' in name:
-        return 'International / FoF'
-    if any(x in name for x in ['global', 'intl', 'international', 'us equity', 'nasdaq', 's&p', 'emerging', 'china', 'europe', 'world', 'overseas', 'monash']):
-        return 'International / FoF'
+    # 1. INTERNATIONAL FUNDS (Priority High to catch 'US Large Cap' as International)
+    # Includes variations of 'US', 'International', and specific country/region names
+    intl_keywords = [
+        'intl', 'international', 'global', 'overseas', 'world', 'fof', 
+        'us ', 'u.s.', 'usa', 'america', 'nasdaq', 's&p', 
+        'china', 'japan', 'europe', 'brazil', 'taiwan', 'hong kong', 
+        'asia', 'emerging', 'monash', 'greater china', 'asean'
+    ]
+    if any(x in name for x in intl_keywords):
+        return 'International Funds'
 
-    # 3. Hybrid / Balanced
-    if 'arbitrage' in name: return 'Hybrid - Arbitrage'
-    if 'balanced advantage' in name or 'bal adv' in name or 'baf' in name: return 'Hybrid - BAF'
-    if 'multi asset' in name: return 'Hybrid - Multi Asset'
-    if 'equity savings' in name: return 'Hybrid - Equity Savings'
-    if 'hybrid' in name or 'balanced' in name: return 'Hybrid - Other'
-        
-    # 4. Passive / Index
-    if 'index' in name or 'nifty' in name or 'sensex' in name or 'etf' in name:
-        return 'Index Fund / ETF'
+    # 2. LARGE & MID CAP (Specific Combination)
+    if 'large' in name and 'mid' in name:
+        return 'Large & Mid Cap'
 
-    # 5. Sectoral / Thematic
-    if any(x in name for x in ['tech', 'digital']): return 'Sector - Tech'
-    if any(x in name for x in ['pharma', 'health']): return 'Sector - Pharma'
-    if any(x in name for x in ['bank', 'finance']): return 'Sector - Banking'
-    if any(x in name for x in ['infra', 'construction']): return 'Sector - Infra'
-    if any(x in name for x in ['consumption', 'psu', 'mnc', 'esg', 'quant', 'special', 'opportunities', 'business cycle', 'manufacturing', 'defence']):
-        return 'Thematic / Sectoral'
+    # 3. MULTI CAP
+    if 'multi' in name and 'cap' in name:
+        return 'Multi Cap'
 
-    # 6. Equity (Market Cap)
-    if 'large' in name and 'mid' in name: return 'Large & Mid Cap'
-    if 'flexi' in name: return 'Flexi Cap'
-    if 'multi' in name and 'cap' in name: return 'Multi Cap'
-    if 'small' in name: return 'Small Cap'
-    if 'mid' in name: return 'Mid Cap'
-    if 'large' in name or 'bluechip' in name or 'top 100' in name or 'frontline' in name: return 'Large Cap'
-    if 'focused' in name: return 'Focused Fund'
-    if 'value' in name or 'contra' in name: return 'Value / Contra'
-    if 'elss' in name or 'tax' in name: return 'ELSS (Tax Saver)'
-    if 'dividend' in name: return 'Dividend Yield'
-        
-    # 7. Debt
-    if any(x in name for x in ['liquid', 'overnight', 'bond', 'gilt', 'duration', 'corporate', 'credit', 'money market', 'float', 'income']):
-        return 'Debt / Liquid'
-        
-    return 'Other Equity'
+    # 4. SMALL CAP
+    if 'small' in name:
+        return 'Small Cap'
+
+    # 5. MID CAP
+    if 'mid' in name:
+        return 'Mid Cap'
+
+    # 6. LARGE CAP
+    if 'large' in name or 'bluechip' in name or 'top 100' in name or 'frontline' in name:
+        return 'Large Cap'
+
+    # 7. EVERYTHING ELSE (Debt, Hybrid, Commodities, Thematic, etc.)
+    return 'Other / Uncategorized'
 
 # --- 2. RETURN CALCULATION LOGIC ---
 def calculate_returns(df, fund_col, date_col, period_days=None, period_months=None, period_years=None):
@@ -162,9 +154,15 @@ if uploaded_file:
         # --- FILTERS ---
         st.sidebar.header("🔍 Filter Options")
         
-        # Category Filter
+        # Category Filter - Pre-select the main ones, exclude 'Other' by default for cleaner view
         all_cats = sorted(df_results["Category"].unique())
-        selected_cats = st.sidebar.multiselect("Select Category", all_cats, default=all_cats)
+        default_cats = [c for c in all_cats if c != "Other / Uncategorized"]
+        
+        selected_cats = st.sidebar.multiselect(
+            "Select Category", 
+            all_cats, 
+            default=default_cats if default_cats else all_cats
+        )
         
         # Search Filter
         search_query = st.sidebar.text_input("Search Fund Name")
@@ -203,7 +201,7 @@ if uploaded_file:
             height=600,
             column_config={
                 "Fund Name": st.column_config.TextColumn("Fund Name", width="large"),
-                "Category": st.column_config.TextColumn("Category", width="small")
+                "Category": st.column_config.TextColumn("Category", width="medium")
             }
         )
         
