@@ -3,53 +3,46 @@ import pandas as pd
 import numpy as np
 from datetime import timedelta
 
-# --- 1. SMART CATEGORIZATION LOGIC ---
+# --- 1. STRICT 6-CATEGORY LOGIC ---
 def categorize_fund(fund_name):
     """
-    Strictly categorizes funds into:
-    1. International Funds
-    2. Large & Mid Cap
-    3. Multi Cap
-    4. Large Cap
-    5. Mid Cap
-    6. Small Cap
-    7. Other / Uncategorized (Everything else)
+    Categorizes ALL funds into exactly 6 buckets.
+    Hierarchy is critical here to catch specific types before general ones.
     """
     name = fund_name.lower()
     
-    # 1. INTERNATIONAL FUNDS (Priority High to catch 'US Large Cap' as International)
-    # Includes variations of 'US', 'International', and specific country/region names
+    # 1. INTERNATIONAL FUNDS (Highest Priority)
+    # Catches 'US', 'Global', 'China', 'Nasdaq', etc.
     intl_keywords = [
         'intl', 'international', 'global', 'overseas', 'world', 'fof', 
         'us ', 'u.s.', 'usa', 'america', 'nasdaq', 's&p', 
         'china', 'japan', 'europe', 'brazil', 'taiwan', 'hong kong', 
-        'asia', 'emerging', 'monash', 'greater china', 'asean'
+        'asia', 'emerging', 'monash', 'greater china', 'asean', 'deutschland'
     ]
     if any(x in name for x in intl_keywords):
         return 'International Funds'
 
-    # 2. LARGE & MID CAP (Specific Combination)
+    # 2. LARGE & MID CAP (Specific 'And' Logic)
+    # "Bank of India Large & Mid Cap" will be caught here first
     if 'large' in name and 'mid' in name:
         return 'Large & Mid Cap'
 
-    # 3. MULTI CAP
-    if 'multi' in name and 'cap' in name:
-        return 'Multi Cap'
-
-    # 4. SMALL CAP
+    # 3. SMALL CAP
     if 'small' in name:
         return 'Small Cap'
 
-    # 5. MID CAP
+    # 4. MID CAP (Must check after Large & Mid to avoid double counting)
     if 'mid' in name:
         return 'Mid Cap'
 
-    # 6. LARGE CAP
-    if 'large' in name or 'bluechip' in name or 'top 100' in name or 'frontline' in name:
+    # 5. LARGE CAP
+    if 'large' in name or 'bluechip' in name or 'top 100' in name or 'frontline' in name or 'nifty' in name or 'sensex' in name:
         return 'Large Cap'
 
-    # 7. EVERYTHING ELSE (Debt, Hybrid, Commodities, Thematic, etc.)
-    return 'Other / Uncategorized'
+    # 6. MULTI CAP (The Catch-All)
+    # If it's a "Flexi Cap", "Multi Cap", "Value", "Contra", or any random sector fund, 
+    # we group it here to strictly maintain only 6 categories.
+    return 'Multi Cap'
 
 # --- 2. RETURN CALCULATION LOGIC ---
 def calculate_returns(df, fund_col, date_col, period_days=None, period_months=None, period_years=None):
@@ -92,33 +85,24 @@ def calculate_returns(df, fund_col, date_col, period_days=None, period_months=No
 @st.cache_data
 def process_alldata(uploaded_file):
     try:
-        # Load File: Skip first 2 rows (Junk headers)
         if uploaded_file.name.endswith('.csv'):
             df = pd.read_csv(uploaded_file, header=2)
         else:
             df = pd.read_excel(uploaded_file, header=2)
             
-        # Rename first column to Date
         df.rename(columns={df.columns[0]: 'Date'}, inplace=True)
-        
-        # Clean Date Column
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-        df = df.dropna(subset=['Date']) # Drops the footer text rows
+        df = df.dropna(subset=['Date'])
         
-        # Identify Fund Columns (Ignore 'Date' and any 'Unnamed' cols)
         fund_columns = [c for c in df.columns if c != 'Date' and "Unnamed" not in str(c)]
         
-        # Convert NAVs to Numeric (Coerce errors to NaN)
         for col in fund_columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
 
         results = []
-        
-        # Loop through every fund column
         for fund in fund_columns:
             cat = categorize_fund(fund)
             
-            # Calculate specific returns
             row = {
                 "Category": cat,
                 "Fund Name": fund,
@@ -141,33 +125,30 @@ def process_alldata(uploaded_file):
 st.set_page_config(page_title="Mutual Fund Analytics", layout="wide", page_icon="📈")
 
 st.title("📈 Mutual Fund Returns Dashboard")
-st.markdown("Upload your **`alldata.xlsx`** master file to generate the 1W - 1Y returns report.")
+st.markdown("Upload **`alldata.xlsx`** to categorize funds into exactly 6 buckets.")
 
-# File Uploader
-uploaded_file = st.file_uploader("Upload alldata.xlsx (or .csv)", type=['xlsx', 'csv'])
+uploaded_file = st.file_uploader("Upload alldata.xlsx", type=['xlsx', 'csv'])
 
 if uploaded_file:
-    with st.spinner("Processing Master File..."):
+    with st.spinner("Processing & Categorizing..."):
         df_results = process_alldata(uploaded_file)
         
     if not df_results.empty:
         # --- FILTERS ---
         st.sidebar.header("🔍 Filter Options")
         
-        # Category Filter - Pre-select the main ones, exclude 'Other' by default for cleaner view
-        all_cats = sorted(df_results["Category"].unique())
-        default_cats = [c for c in all_cats if c != "Other / Uncategorized"]
+        # Enforce strict order in sidebar
+        strict_order = ['International Funds', 'Large & Mid Cap', 'Large Cap', 'Mid Cap', 'Small Cap', 'Multi Cap']
+        available_cats = [c for c in strict_order if c in df_results["Category"].unique()]
         
         selected_cats = st.sidebar.multiselect(
             "Select Category", 
-            all_cats, 
-            default=default_cats if default_cats else all_cats
+            available_cats, 
+            default=available_cats
         )
         
-        # Search Filter
         search_query = st.sidebar.text_input("Search Fund Name")
         
-        # Apply Filters
         filtered_df = df_results[df_results["Category"].isin(selected_cats)]
         if search_query:
             filtered_df = filtered_df[filtered_df["Fund Name"].str.contains(search_query, case=False)]
@@ -205,14 +186,8 @@ if uploaded_file:
             }
         )
         
-        # --- DOWNLOAD ---
         csv = filtered_df.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="Download Analysis as CSV",
-            data=csv,
-            file_name="mf_returns_analysis.csv",
-            mime="text/csv"
-        )
+        st.download_button("Download Analysis as CSV", csv, "mf_returns_analysis.csv", "text/csv")
         
     else:
-        st.error("Could not process data. Please ensure the file format matches standard 'Accord Fintech / ACE MF' exports.")
+        st.error("Could not process data. Ensure file format is correct.")
