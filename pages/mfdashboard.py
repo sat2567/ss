@@ -232,14 +232,31 @@ def highlight_exceptional_row(row):
     return [''] * len(row)
 
 
-def highlight_top_percentile_cells(row, return_cols, pctl_cols):
-    """Put a gold background on cells where percentile >= 85."""
-    styles = [''] * len(row)
-    for rc, pc in zip(return_cols, pctl_cols):
-        if pc in row.index and not pd.isna(row[pc]) and row[pc] >= 85:
-            col_idx = row.index.get_loc(rc)
-            styles[col_idx] = 'background-color: rgba(251, 191, 36, 0.18); font-weight: 800'
-    return styles
+def build_highlight_func(filtered_df, return_cols, pctl_cols):
+    """
+    Build a row-level style function that highlights cells where the fund
+    is in the top 15th percentile. Uses a lookup dict from filtered_df
+    so the style function only returns styles matching display_df columns.
+    """
+    # Pre-build a lookup: index -> {return_col: is_top_percentile}
+    pctl_lookup = {}
+    for idx in filtered_df.index:
+        tops = {}
+        for rc, pc in zip(return_cols, pctl_cols):
+            pctl = filtered_df.loc[idx, pc]
+            tops[rc] = (not pd.isna(pctl)) and pctl >= 85
+        pctl_lookup[idx] = tops
+
+    def _highlight_row(row):
+        styles = [''] * len(row)
+        tops = pctl_lookup.get(row.name, {})
+        for rc in return_cols:
+            if tops.get(rc, False) and rc in row.index:
+                col_idx = row.index.get_loc(rc)
+                styles[col_idx] = 'background-color: rgba(251, 191, 36, 0.18); font-weight: 800'
+        return styles
+
+    return _highlight_row
 
 
 # --- 6. DASHBOARD UI ---
@@ -534,6 +551,8 @@ if uploaded_file:
         display_df.loc[exc_mask, "Fund Name"] = "⭐ " + display_df.loc[exc_mask, "Fund Name"]
 
         # Style it
+        highlight_fn = build_highlight_func(filtered_df, return_cols, pctl_cols)
+
         styled = (
             display_df.style
             .format({c: "{:+.2f}" for c in return_cols}, na_rep="—")
@@ -541,13 +560,7 @@ if uploaded_file:
                 cmap="RdYlGn", subset=return_cols,
                 vmin=-10, vmax=15
             )
-            .apply(
-                lambda row: highlight_top_percentile_cells(
-                    filtered_df.loc[row.name] if row.name in filtered_df.index else row,
-                    return_cols, pctl_cols
-                ),
-                axis=1
-            )
+            .apply(highlight_fn, axis=1)
         )
 
         st.dataframe(
