@@ -156,20 +156,66 @@ def detect_exceptional_funds(df_results):
 
 
 # --- 4. FILE PROCESSOR ---
+import os
+
+# ============================================================
+# AUTO-LOAD: Finds alldata.xlsx automatically from the repo.
+# Works on Streamlit Cloud (file lives next to this script or
+# in the repo root) and locally. No upload needed.
+# ============================================================
+def find_alldata_file():
+    """
+    Search for alldata.xlsx in common locations relative to the script
+    and the repo root. Returns the first path found, or None.
+    """
+    possible_paths = [
+        # Same directory as this script
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "alldata.xlsx"),
+        # Repo root (one level up from pages/)
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "alldata.xlsx"),
+        # Repo root (two levels up, e.g. pages/subfolder/)
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "alldata.xlsx"),
+        # Current working directory
+        os.path.join(os.getcwd(), "alldata.xlsx"),
+        # Explicit common Streamlit Cloud mount
+        "/mount/src/ss/alldata.xlsx",
+        "/mount/src/ss/pages/alldata.xlsx",
+    ]
+    for p in possible_paths:
+        resolved = os.path.abspath(p)
+        if os.path.isfile(resolved):
+            return resolved
+    return None
+
+
 @st.cache_data
-def process_alldata(uploaded_file):
+def process_alldata(file_path_or_upload):
+    """
+    Process alldata.xlsx from either a file path (str) or a Streamlit
+    UploadedFile object. Both are supported for flexibility.
+    """
     try:
-        if uploaded_file.name.endswith('.csv'):
-            df = pd.read_csv(uploaded_file, header=2)
+        # Determine if it's a file path or an uploaded file object
+        if isinstance(file_path_or_upload, str):
+            # It's a file path on disk
+            file_path = file_path_or_upload
+            if file_path.endswith('.csv'):
+                df = pd.read_csv(file_path, header=2)
+            else:
+                df = pd.read_excel(file_path, header=2)
         else:
-            df = pd.read_excel(uploaded_file, header=2)
+            # It's a Streamlit UploadedFile
+            if file_path_or_upload.name.endswith('.csv'):
+                df = pd.read_csv(file_path_or_upload, header=2)
+            else:
+                df = pd.read_excel(file_path_or_upload, header=2)
 
         df.rename(columns={df.columns[0]: 'Date'}, inplace=True)
-        
+
         # Skip sub-header row if present (e.g., "NAV Date", "Adjusted NAV...")
         if isinstance(df.iloc[0]['Date'], str) and 'nav' in str(df.iloc[0]['Date']).lower():
             df = df.iloc[1:]
-        
+
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
         df = df.dropna(subset=['Date'])
 
@@ -359,11 +405,24 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-uploaded_file = st.file_uploader("Upload **alldata.xlsx**", type=['xlsx', 'csv'])
+# =============================================
+# AUTO-LOAD alldata.xlsx FROM REPO
+# =============================================
+auto_file_path = find_alldata_file()
+data_source = None  # Will hold the file path or uploaded file
 
-if uploaded_file:
+if auto_file_path:
+    data_source = auto_file_path
+    st.success(f"✅ Auto-loaded **alldata.xlsx** from repo: `{auto_file_path}`")
+else:
+    st.warning("⚠️ **alldata.xlsx** not found in the repo. Please upload it manually.")
+    uploaded_file = st.file_uploader("Upload **alldata.xlsx**", type=['xlsx', 'csv'])
+    if uploaded_file:
+        data_source = uploaded_file
+
+if data_source:
     with st.spinner("⏳ Processing, categorizing & detecting exceptional performers..."):
-        df_results = process_alldata(uploaded_file)
+        df_results = process_alldata(data_source)
 
     if not df_results.empty:
         return_cols = ["1W (%)", "2W (%)", "1M (%)", "3M (%)", "6M (%)", "1Y (%)"]
