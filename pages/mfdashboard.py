@@ -5,19 +5,8 @@ from datetime import timedelta
 
 # --- 1. STRICT 6-CATEGORY LOGIC (IMPROVED) ---
 def categorize_fund(fund_name):
-    """
-    Categorizes ALL funds into exactly 6 buckets.
-    Hierarchy is critical here to catch specific types before general ones.
-    
-    Improvements over original:
-    - Catches FoF, REIT, Mining, Clean Energy, Treasury, Climate Change as International
-    - Correctly classifies Parag Parikh (Flexi Cap marketed as Large Cap) into Multi Cap
-    - Catches Long-Short / Alternative funds into Multi Cap
-    - Expanded international keyword list for Hang Seng, FANG, NYSE, etc.
-    """
     name = fund_name.lower()
 
-    # 1. INTERNATIONAL FUNDS (Highest Priority)
     intl_keywords = [
         'intl', 'international', 'global', 'overseas', 'world', 'fof',
         'us ', 'u.s.', 'usa', 'america', 'nasdaq', 's&p',
@@ -30,39 +19,29 @@ def categorize_fund(fund_name):
     if any(x in name for x in intl_keywords):
         return 'International Funds'
 
-    # 2. LONG-SHORT / ALTERNATIVE → Multi Cap
     if 'long short' in name or 'long-short' in name:
         return 'Multi Cap'
 
-    # 3. PARAG PARIKH → Multi Cap (it's a Flexi Cap fund, not a true Large Cap)
     if 'parag parikh' in name:
         return 'Multi Cap'
 
-    # 4. LARGE & MID CAP (Specific 'And' Logic)
     if 'large' in name and 'mid' in name:
         return 'Large & Mid Cap'
 
-    # 5. SMALL CAP
     if 'small' in name:
         return 'Small Cap'
 
-    # 6. MID CAP (Must check after Large & Mid to avoid double counting)
     if 'mid' in name:
         return 'Mid Cap'
 
-    # 7. LARGE CAP
     if 'large' in name or 'bluechip' in name or 'top 100' in name or 'frontline' in name or 'nifty' in name or 'sensex' in name:
         return 'Large Cap'
 
-    # 8. MULTI CAP (The Catch-All)
     return 'Multi Cap'
 
 
 # --- 2. RETURN CALCULATION LOGIC ---
 def calculate_returns(df, fund_col, date_col, period_days=None, period_months=None, period_years=None):
-    """
-    Calculates absolute return % between Latest Date and (Latest Date - Period).
-    """
     df = df.sort_values(by=date_col, ascending=False).reset_index(drop=True)
 
     if df.empty:
@@ -102,10 +81,6 @@ def calculate_returns(df, fund_col, date_col, period_days=None, period_months=No
 
 # --- 3. EXCEPTIONAL FUND DETECTION ---
 def compute_percentile_rank(value, all_values):
-    """
-    Returns percentile rank (0-100) of a value within a list.
-    100 = best in category.
-    """
     valid = [v for v in all_values if not pd.isna(v)]
     if not valid or pd.isna(value):
         return np.nan
@@ -114,18 +89,8 @@ def compute_percentile_rank(value, all_values):
 
 
 def detect_exceptional_funds(df_results):
-    """
-    For each fund, compute percentile rank within its category for each return period.
-    A fund is 'Exceptional' if it ranks in the top 15th percentile (>=85) in 2+ periods.
-    
-    Returns the enriched dataframe with:
-    - Percentile columns for each period
-    - 'Exceptional Periods' count
-    - 'Is Exceptional' boolean flag
-    """
     return_cols = ["1W (%)", "2W (%)", "1M (%)", "3M (%)", "6M (%)", "1Y (%)"]
 
-    # Initialize new columns
     for col in return_cols:
         df_results[f"Pctl_{col}"] = np.nan
     df_results["Exceptional Periods"] = 0
@@ -142,7 +107,6 @@ def detect_exceptional_funds(df_results):
                 pctl = compute_percentile_rank(val, all_values)
                 df_results.loc[idx, f"Pctl_{col}"] = pctl
 
-    # Count how many periods each fund is in the top 15%
     for idx in df_results.index:
         exc_count = 0
         for col in return_cols:
@@ -158,26 +122,12 @@ def detect_exceptional_funds(df_results):
 # --- 4. FILE PROCESSOR ---
 import os
 
-# ============================================================
-# AUTO-LOAD: Finds alldata.xlsx automatically from the repo.
-# Works on Streamlit Cloud (file lives next to this script or
-# in the repo root) and locally. No upload needed.
-# ============================================================
 def find_alldata_file():
-    """
-    Search for alldata.xlsx in common locations relative to the script
-    and the repo root. Returns the first path found, or None.
-    """
     possible_paths = [
-        # Same directory as this script
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "alldata.xlsx"),
-        # Repo root (one level up from pages/)
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "alldata.xlsx"),
-        # Repo root (two levels up, e.g. pages/subfolder/)
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "alldata.xlsx"),
-        # Current working directory
         os.path.join(os.getcwd(), "alldata.xlsx"),
-        # Explicit common Streamlit Cloud mount
         "/mount/src/ss/alldata.xlsx",
         "/mount/src/ss/pages/alldata.xlsx",
     ]
@@ -190,21 +140,14 @@ def find_alldata_file():
 
 @st.cache_data
 def process_alldata(file_path_or_upload):
-    """
-    Process alldata.xlsx from either a file path (str) or a Streamlit
-    UploadedFile object. Both are supported for flexibility.
-    """
     try:
-        # Determine if it's a file path or an uploaded file object
         if isinstance(file_path_or_upload, str):
-            # It's a file path on disk
             file_path = file_path_or_upload
             if file_path.endswith('.csv'):
                 df = pd.read_csv(file_path, header=2)
             else:
                 df = pd.read_excel(file_path, header=2)
         else:
-            # It's a Streamlit UploadedFile
             if file_path_or_upload.name.endswith('.csv'):
                 df = pd.read_csv(file_path_or_upload, header=2)
             else:
@@ -212,7 +155,6 @@ def process_alldata(file_path_or_upload):
 
         df.rename(columns={df.columns[0]: 'Date'}, inplace=True)
 
-        # Skip sub-header row if present (e.g., "NAV Date", "Adjusted NAV...")
         if isinstance(df.iloc[0]['Date'], str) and 'nav' in str(df.iloc[0]['Date']).lower():
             df = df.iloc[1:]
 
@@ -241,8 +183,6 @@ def process_alldata(file_path_or_upload):
             results.append(row)
 
         df_results = pd.DataFrame(results)
-
-        # --- DETECT EXCEPTIONAL FUNDS ---
         df_results = detect_exceptional_funds(df_results)
 
         return df_results
@@ -253,38 +193,12 @@ def process_alldata(file_path_or_upload):
 
 
 # --- 5. STYLING HELPERS ---
-def color_return(val):
-    """Color-code a return value for the dataframe."""
-    if pd.isna(val):
-        return 'color: #6b7280'
-    if val >= 5:
-        return 'color: #16a34a; font-weight: 700'
-    elif val >= 2:
-        return 'color: #22c55e'
-    elif val >= 0:
-        return 'color: #86efac'
-    elif val >= -2:
-        return 'color: #fca5a5'
-    elif val >= -5:
-        return 'color: #f87171'
-    else:
-        return 'color: #ef4444; font-weight: 700'
 
-
-def highlight_exceptional_row(row):
-    """Highlight entire row if the fund is exceptional."""
-    if row.get("Is Exceptional", False):
-        return ['background-color: rgba(251, 191, 36, 0.08)'] * len(row)
-    return [''] * len(row)
-
-
-def build_highlight_func(filtered_df, return_cols, pctl_cols):
+def build_cell_style_func(filtered_df, return_cols, pctl_cols):
     """
-    Build a row-level style function that highlights cells where the fund
-    is in the top 15th percentile. Uses a lookup dict from filtered_df
-    so the style function only returns styles matching display_df columns.
+    Unified cell styler: colored background + explicit contrasting text color.
+    Gold for top-15% cells. Green/red shades for others. No background_gradient conflict.
     """
-    # Pre-build a lookup: index -> {return_col: is_top_percentile}
     pctl_lookup = {}
     for idx in filtered_df.index:
         tops = {}
@@ -293,32 +207,103 @@ def build_highlight_func(filtered_df, return_cols, pctl_cols):
             tops[rc] = (not pd.isna(pctl)) and pctl >= 85
         pctl_lookup[idx] = tops
 
-    def _highlight_row(row):
+    def _style_row(row):
         styles = [''] * len(row)
         tops = pctl_lookup.get(row.name, {})
+
         for rc in return_cols:
-            if tops.get(rc, False) and rc in row.index:
-                col_idx = row.index.get_loc(rc)
-                styles[col_idx] = 'background-color: rgba(251, 191, 36, 0.18); font-weight: 800'
+            if rc not in row.index:
+                continue
+            col_idx = row.index.get_loc(rc)
+            val = row[rc]
+            is_top = tops.get(rc, False)
+
+            if pd.isna(val):
+                styles[col_idx] = 'color: #6b7280;'
+                continue
+
+            if is_top:
+                # Gold — top 15% in category
+                styles[col_idx] = (
+                    'background-color: rgba(251,191,36,0.22);'
+                    'color: #fde68a;'
+                    'font-weight: 800;'
+                )
+            elif val >= 5:
+                styles[col_idx] = (
+                    'background-color: rgba(22,163,74,0.30);'
+                    'color: #86efac;'
+                    'font-weight: 700;'
+                )
+            elif val >= 2:
+                styles[col_idx] = (
+                    'background-color: rgba(34,197,94,0.18);'
+                    'color: #4ade80;'
+                )
+            elif val >= 0:
+                styles[col_idx] = (
+                    'background-color: rgba(134,239,172,0.10);'
+                    'color: #86efac;'
+                )
+            elif val >= -2:
+                styles[col_idx] = (
+                    'background-color: rgba(252,165,165,0.15);'
+                    'color: #fca5a5;'
+                )
+            elif val >= -5:
+                styles[col_idx] = (
+                    'background-color: rgba(248,113,113,0.25);'
+                    'color: #f87171;'
+                )
+            else:
+                styles[col_idx] = (
+                    'background-color: rgba(239,68,68,0.32);'
+                    'color: #ef4444;'
+                    'font-weight: 700;'
+                )
+
         return styles
 
-    return _highlight_row
+    return _style_row
+
+
+def build_cat_stats_style(stats_df, avg_cols):
+    """Row-level styler for category stats table."""
+    def _style_row(row):
+        styles = [''] * len(row)
+        for col in avg_cols:
+            if col not in row.index:
+                continue
+            col_idx = row.index.get_loc(col)
+            val = row[col]
+            if pd.isna(val):
+                continue
+            if val >= 5:
+                styles[col_idx] = 'background-color: rgba(22,163,74,0.30); color: #86efac; font-weight: 700;'
+            elif val >= 2:
+                styles[col_idx] = 'background-color: rgba(34,197,94,0.18); color: #4ade80;'
+            elif val >= 0:
+                styles[col_idx] = 'background-color: rgba(134,239,172,0.10); color: #86efac;'
+            elif val >= -2:
+                styles[col_idx] = 'background-color: rgba(252,165,165,0.15); color: #fca5a5;'
+            else:
+                styles[col_idx] = 'background-color: rgba(239,68,68,0.28); color: #ef4444; font-weight: 700;'
+        return styles
+    return _style_row
 
 
 # --- 6. DASHBOARD UI ---
 st.set_page_config(page_title="Mutual Fund Analytics", layout="wide", page_icon="📈")
 
-# Custom CSS
 st.markdown("""
 <style>
-    /* Dark theme overrides */
     .stApp { background-color: #0a0e17; }
-    
+
     section[data-testid="stSidebar"] {
         background-color: #111827;
         border-right: 1px solid #1f2937;
     }
-    
+
     .metric-card {
         background: linear-gradient(135deg, #111827, #1a2236);
         border: 1px solid #1f2937;
@@ -343,7 +328,7 @@ st.markdown("""
         color: #6b7280;
         margin-top: 4px;
     }
-    
+
     .exceptional-card {
         background: linear-gradient(135deg, rgba(251,191,36,0.1), rgba(251,191,36,0.03));
         border: 1px solid rgba(251,191,36,0.3);
@@ -365,23 +350,23 @@ st.markdown("""
         color: #e5e7eb;
         margin-top: 6px;
     }
-    
-    .category-badge {
-        display: inline-block;
-        padding: 3px 10px;
-        border-radius: 6px;
-        font-size: 11px;
-        font-weight: 600;
-        letter-spacing: 0.3px;
+
+    /* Force dark background on dataframe cells so our text colors show properly */
+    .stDataFrame [data-testid="stDataFrame"] div[data-testid="stDataFrameResizable"] {
+        background-color: #111827;
     }
-    
-    /* Table header styling */
     .stDataFrame thead th {
         background-color: #111827 !important;
         color: #9ca3af !important;
         font-size: 11px !important;
         text-transform: uppercase !important;
         letter-spacing: 0.5px !important;
+    }
+    .stDataFrame tbody tr {
+        background-color: #0f172a !important;
+    }
+    .stDataFrame tbody tr:hover {
+        background-color: #1e293b !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -409,7 +394,7 @@ st.markdown("""
 # AUTO-LOAD alldata.xlsx FROM REPO
 # =============================================
 auto_file_path = find_alldata_file()
-data_source = None  # Will hold the file path or uploaded file
+data_source = None
 
 if auto_file_path:
     data_source = auto_file_path
@@ -510,7 +495,6 @@ if data_source:
 
             with st.expander(f"**{cat}** — {len(cat_exc)} exceptional fund{'s' if len(cat_exc) != 1 else ''}", expanded=True):
                 for _, fund in cat_exc.iterrows():
-                    # Build return badges
                     badges = []
                     for rc, pc in zip(return_cols, pctl_cols):
                         val = fund[rc]
@@ -556,7 +540,6 @@ if data_source:
         for tab, rc in zip(period_tabs, return_cols):
             with tab:
                 period_label = rc.replace(" (%)", "")
-                # Top 5 per category for this period
                 for cat in strict_order:
                     cat_data = df_results[df_results["Category"] == cat].copy()
                     cat_top = cat_data.nlargest(5, rc, keep='first')
@@ -598,28 +581,34 @@ if data_source:
             f"| 🟡 Gold cells = top 15% in category"
         )
 
-        # Columns to display
+        # Legend
+        st.markdown("""
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;font-size:12px;">
+            <span style="padding:3px 10px;border-radius:6px;background:rgba(251,191,36,0.22);color:#fde68a;font-weight:700;">🏆 Top 15%</span>
+            <span style="padding:3px 10px;border-radius:6px;background:rgba(22,163,74,0.30);color:#86efac;">≥ +5%</span>
+            <span style="padding:3px 10px;border-radius:6px;background:rgba(34,197,94,0.18);color:#4ade80;">+2% to +5%</span>
+            <span style="padding:3px 10px;border-radius:6px;background:rgba(134,239,172,0.10);color:#86efac;">0% to +2%</span>
+            <span style="padding:3px 10px;border-radius:6px;background:rgba(252,165,165,0.15);color:#fca5a5;">0% to -2%</span>
+            <span style="padding:3px 10px;border-radius:6px;background:rgba(248,113,113,0.25);color:#f87171;">-2% to -5%</span>
+            <span style="padding:3px 10px;border-radius:6px;background:rgba(239,68,68,0.32);color:#ef4444;font-weight:700;">≤ -5%</span>
+        </div>
+        """, unsafe_allow_html=True)
+
         display_cols = ["Category", "Fund Name"] + return_cols + ["Exceptional Periods"]
 
-        # Build styled dataframe
         display_df = filtered_df[display_cols].copy()
         display_df["Exceptional Periods"] = display_df["Exceptional Periods"].astype(int)
 
-        # Add star emoji to exceptional fund names
         exc_mask = filtered_df["Is Exceptional"].values
         display_df.loc[exc_mask, "Fund Name"] = "⭐ " + display_df.loc[exc_mask, "Fund Name"]
 
-        # Style it
-        highlight_fn = build_highlight_func(filtered_df, return_cols, pctl_cols)
+        # Single unified style function — no background_gradient conflict
+        cell_style_fn = build_cell_style_func(filtered_df, return_cols, pctl_cols)
 
         styled = (
             display_df.style
             .format({c: "{:+.2f}" for c in return_cols}, na_rep="—")
-            .background_gradient(
-                cmap="RdYlGn", subset=return_cols,
-                vmin=-10, vmax=15
-            )
-            .apply(highlight_fn, axis=1)
+            .apply(cell_style_fn, axis=1)
         )
 
         st.dataframe(
@@ -663,12 +652,15 @@ if data_source:
         stats_df = pd.DataFrame(cat_stats)
         avg_cols = [c for c in stats_df.columns if 'Avg' in c]
         best_cols = [c for c in stats_df.columns if 'Best' in c]
+        worst_cols = [c for c in stats_df.columns if 'Worst' in c]
+        all_num_cols = avg_cols + best_cols + worst_cols
+
+        cat_stats_style_fn = build_cat_stats_style(stats_df, avg_cols)
 
         st.dataframe(
-            stats_df.style.format(
-                {c: "{:+.2f}" for c in avg_cols + best_cols + [c for c in stats_df.columns if 'Worst' in c]},
-                na_rep="—"
-            ).background_gradient(cmap="RdYlGn", subset=avg_cols, vmin=-5, vmax=10),
+            stats_df.style
+            .format({c: "{:+.2f}" for c in all_num_cols}, na_rep="—")
+            .apply(cat_stats_style_fn, axis=1),
             use_container_width=True,
             hide_index=True,
         )
