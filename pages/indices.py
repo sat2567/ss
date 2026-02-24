@@ -234,13 +234,23 @@ section[data-testid="stSidebar"] .stCheckbox label { color: var(--accent-1) !imp
 
 # ─── TICKERS ───────────────────────────────────────────────────────────────────
 INDEX_TICKERS = {
-    "NIFTY 50":       "^NSEI",
-    "NIFTY BANK":     "^NSEBANK",
-    "NIFTY MIDCAP":   "^NSMIDCP",
-    "NIFTY IT":       "^CNXIT",
-    "SENSEX":         "^BSESN",
-    "INDIA VIX":      "^INDIAVIX",
+    "NIFTY 50":         "^NSEI",
+    "NIFTY BANK":       "^NSEBANK",
+    "NIFTY MIDCAP":     "^NSMIDCP",
+    "NIFTY SMALLCAP":   "^CNXSC",          # NIFTY SMLCAP 100
+    "NIFTY IT":         "^CNXIT",
+    "SENSEX":           "^BSESN",
+    "INDIA VIX":        "^INDIAVIX",
 }
+
+# Fallback tickers for NIFTY SMALLCAP — tried in order if primary fails
+SMALLCAP_FALLBACKS = [
+    ("NIFTY SMALLCAP",     "^CNXSC"),
+    ("NIFTY SMLCAP 250",   "NIFTYSMLCAP250.NS"),
+    ("NIFTY SMLCAP 50",    "NIFTYSMLCAP50.NS"),
+    ("BSE SMALLCAP",       "BSE-SMLCAP.BO"),
+    ("BSE SMLCAP 250",     "SML250.BO"),
+]
 
 SECTOR_TICKERS = {
     "Bank":    "^NSEBANK",
@@ -291,6 +301,34 @@ def fetch_data(ticker_dict, period="2y"):
         except:
             continue
     return data_dict
+
+
+def fetch_single_ticker(ticker, period):
+    """Fetch a single ticker robustly, returns cleaned DataFrame or None."""
+    try:
+        df = yf.download(ticker, period=period, auto_adjust=True, progress=False)
+        if df.empty:
+            return None
+        df = df.dropna(how='all').ffill()
+        if df.index.tz is not None:
+            df.index = df.index.tz_localize(None)
+        # Need at least 5 rows to be useful
+        return df if len(df) >= 5 else None
+    except:
+        return None
+
+
+def resolve_smallcap(period):
+    """
+    Try each smallcap fallback ticker in order.
+    Returns (display_name, dataframe) for the first one that works, or (None, None).
+    """
+    for display_name, ticker in SMALLCAP_FALLBACKS:
+        df = fetch_single_ticker(ticker, period)
+        if df is not None:
+            return display_name, df
+    return None, None
+
 
 # ─── TECHNICAL INDICATORS ──────────────────────────────────────────────────────
 def rsi(series, period=14):
@@ -770,6 +808,7 @@ def main():
         normalize  = st.checkbox("NORMALIZE (Base=100)", value=True)
         st.markdown("---")
         st.markdown('<p style="font-family:Share Tech Mono;font-size:9px;color:#3a5a70;letter-spacing:1px;">DATA: YAHOO FINANCE<br>REFRESH: 30 MIN TTL</p>', unsafe_allow_html=True)
+        sc_status_placeholder = st.empty()  # filled after data loads
 
     # ── LOAD DATA ───────────────────────────────────────────────────────────
     with st.spinner("FETCHING MARKET DATA..."):
@@ -779,6 +818,23 @@ def main():
     if not index_data and not sector_data:
         st.error("NO DATA FETCHED. CHECK CONNECTION.")
         return
+
+    # ── SMALLCAP FALLBACK ───────────────────────────────────────────────────
+    # If the primary NIFTY SMALLCAP ticker returned no data, try fallbacks
+    smallcap_status = ""
+    if "NIFTY SMALLCAP" not in index_data or index_data.get("NIFTY SMALLCAP", pd.DataFrame()).empty:
+        sc_name, sc_df = resolve_smallcap(selected_period)
+        if sc_df is not None:
+            index_data[sc_name] = sc_df
+            smallcap_status = f"✅ {sc_name} loaded"
+        else:
+            smallcap_status = "⚠️ No smallcap data available"
+    else:
+        smallcap_status = "✅ NIFTY SMALLCAP 100"
+    sc_status_placeholder.markdown(
+        f'<p style="font-family:Share Tech Mono;font-size:9px;color:#3a5a70;letter-spacing:1px;">SMALLCAP: {smallcap_status}</p>',
+        unsafe_allow_html=True
+    )
 
     # ── HEADER ──────────────────────────────────────────────────────────────
     now = datetime.now().strftime("%d %b %Y  //  %H:%M:%S")
@@ -798,7 +854,21 @@ def main():
     """, unsafe_allow_html=True)
 
     # ── KPI CARDS ───────────────────────────────────────────────────────────
-    kpi_names  = ["NIFTY 50", "NIFTY BANK", "NIFTY MIDCAP", "NIFTY IT", "SENSEX", "INDIA VIX"]
+    # Show top 6 indices — pick whichever are available (smallcap may have a different name)
+    preferred_kpi = ["NIFTY 50", "NIFTY BANK", "NIFTY MIDCAP", "NIFTY IT", "SENSEX", "INDIA VIX"]
+    # Insert whichever smallcap variant loaded
+    sc_variants = [n for n in index_data if "SMALLCAP" in n.upper() or "SMLCAP" in n.upper()]
+    kpi_names = []
+    for name in preferred_kpi:
+        if name in index_data:
+            kpi_names.append(name)
+        elif name == "NIFTY SMALLCAP" and sc_variants:
+            kpi_names.append(sc_variants[0])
+    # Fill remaining slots with any loaded index not yet shown
+    for name in index_data:
+        if name not in kpi_names and len(kpi_names) < 7:
+            kpi_names.append(name)
+    kpi_names = kpi_names[:7]  # cap at 7
     kpi_cards  = ""
     for name in kpi_names:
         val_str = delta_str = "N/A"
@@ -823,7 +893,7 @@ def main():
           <div class="kpi-delta {direction}">{delta_str}</div>
         </div>"""
 
-    st.markdown(f'<div class="kpi-grid">{kpi_cards}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="kpi-grid" style="grid-template-columns:repeat({len(kpi_names)},1fr)">{kpi_cards}</div>', unsafe_allow_html=True)
 
     # ── TABS ────────────────────────────────────────────────────────────────
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
