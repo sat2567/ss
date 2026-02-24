@@ -523,16 +523,19 @@ def build_full_chart(df, name, ma_windows):
         fig.update_yaxes(title_text=label, title_font=dict(size=9, color="#3a5a70"),
                          row=row, col=1, gridcolor="#0d2535", zerolinecolor="#0d2535")
 
+    # Disable rangeslider on all x-axes (must use update_xaxes, not update_layout)
+    for row in [1, 2, 3, 4, 5]:
+        fig.update_xaxes(rangeslider_visible=False, row=row, col=1,
+                         gridcolor="#0d2535", zerolinecolor="#0d2535")
+
     fig.update_layout(
         height=820,
-        xaxis_rangeslider_visible=False,
         title=dict(text=f"<b>{name}</b> — TECHNICAL ANALYSIS",
                    font=dict(family="Orbitron", size=14, color="#00f5ff")),
         **PLOTLY_THEME,
         showlegend=True,
         legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="right", x=1,
                     bgcolor="rgba(6,13,20,0.9)", bordercolor="#0d2535", borderwidth=1),
-        xaxis5=dict(rangeslider_visible=False),
     )
     return fig, df
 
