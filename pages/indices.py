@@ -286,13 +286,19 @@ def fetch_data(ticker_dict, period="2y"):
     ticker_list = list(ticker_dict.values())
     try:
         raw = yf.download(ticker_list, period=period, group_by='ticker', auto_adjust=True, progress=False)
-    except Exception as e:
+    except Exception:
         return {}
 
     for name, ticker in ticker_dict.items():
         try:
             df = raw.copy() if len(ticker_list) == 1 else raw[ticker].copy()
             if df.empty: continue
+
+            # Flatten multi-level columns that newer yfinance versions return
+            # e.g. ('Close', '^NSEI') → 'Close'
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+
             df = df.dropna(how='all').ffill()
             if df.index.tz is not None:
                 df.index = df.index.tz_localize(None)
@@ -309,6 +315,8 @@ def fetch_single_ticker(ticker, period):
         df = yf.download(ticker, period=period, auto_adjust=True, progress=False)
         if df.empty:
             return None
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
         df = df.dropna(how='all').ffill()
         if df.index.tz is not None:
             df.index = df.index.tz_localize(None)
@@ -982,10 +990,10 @@ def main():
         if name in index_data:
             df = index_data[name]
             if not df.empty:
-                cur  = df['Close'].iloc[-1]
+                cur  = float(df['Close'].iloc[-1])
                 val_str = f"{cur:,.2f}"
                 if len(df) >= 2:
-                    prev = df['Close'].iloc[-2]
+                    prev = float(df['Close'].iloc[-2])
                     pct  = ((cur - prev) / prev) * 100
                     delta_str = f"{'▲' if pct >= 0 else '▼'} {abs(pct):.2f}%"
                     direction = "pos" if pct >= 0 else "neg"
