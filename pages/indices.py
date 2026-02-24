@@ -259,12 +259,13 @@ PLOTLY_THEME = dict(
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(6,13,20,0.8)",
     font=dict(family="Share Tech Mono", color="#7ab3cc", size=11),
-    xaxis=dict(gridcolor="#0d2535", zerolinecolor="#0d2535", showgrid=True),
-    yaxis=dict(gridcolor="#0d2535", zerolinecolor="#0d2535", showgrid=True),
     legend=dict(bgcolor="rgba(6,13,20,0.9)", bordercolor="#0d2535", borderwidth=1),
     margin=dict(l=10, r=10, t=30, b=10),
     hoverlabel=dict(bgcolor="#060d14", bordercolor="#00f5ff", font_color="#e2f4ff"),
 )
+
+# Applied via update_xaxes/update_yaxes to avoid subplot key conflicts
+AXIS_STYLE = dict(gridcolor="#0d2535", zerolinecolor="#0d2535", showgrid=True)
 
 NEON = ["#00f5ff", "#ff6b35", "#00ff88", "#ff3366", "#a855f7", "#fbbf24", "#06b6d4"]
 
@@ -521,18 +522,22 @@ def build_full_chart(df, name, ma_windows):
     # ── Axis labels ─────────────────────────────────────────────────────────
     for row, label in zip([1,2,3,4,5], ["PRICE", "MACD", "RSI", "STOCH", "VOLUME"]):
         fig.update_yaxes(title_text=label, title_font=dict(size=9, color="#3a5a70"),
-                         row=row, col=1, gridcolor="#0d2535", zerolinecolor="#0d2535")
+                         row=row, col=1, gridcolor="#0d2535", zerolinecolor="#0d2535", showgrid=True)
 
-    # Disable rangeslider on all x-axes (must use update_xaxes, not update_layout)
+    # Disable rangeslider on all x-axes
     for row in [1, 2, 3, 4, 5]:
         fig.update_xaxes(rangeslider_visible=False, row=row, col=1,
-                         gridcolor="#0d2535", zerolinecolor="#0d2535")
+                         gridcolor="#0d2535", zerolinecolor="#0d2535", showgrid=True)
 
     fig.update_layout(
         height=820,
         title=dict(text=f"<b>{name}</b> — TECHNICAL ANALYSIS",
                    font=dict(family="Orbitron", size=14, color="#00f5ff")),
-        **PLOTLY_THEME,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(6,13,20,0.8)",
+        font=dict(family="Share Tech Mono", color="#7ab3cc", size=11),
+        hoverlabel=dict(bgcolor="#060d14", bordercolor="#00f5ff", font_color="#e2f4ff"),
+        margin=dict(l=10, r=10, t=50, b=10),
         showlegend=True,
         legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="right", x=1,
                     bgcolor="rgba(6,13,20,0.9)", bordercolor="#0d2535", borderwidth=1),
@@ -646,6 +651,8 @@ def build_fib_chart(df, name):
                       annotation_font_color=fib_colors[i], annotation_font_size=9)
     fig.update_layout(height=350, title=dict(text=f"<b>{name}</b> — FIBONACCI RETRACEMENT",
         font=dict(family="Orbitron", size=12, color="#00f5ff")), **PLOTLY_THEME)
+    fig.update_xaxes(**AXIS_STYLE)
+    fig.update_yaxes(**AXIS_STYLE)
     return fig
 
 # ─── CORRELATION HEATMAP ───────────────────────────────────────────────────────
@@ -660,6 +667,8 @@ def build_corr_heatmap(index_data):
         title=dict(text="RETURNS CORRELATION MATRIX",
                    font=dict(family="Orbitron", size=12, color="#00f5ff")))
     fig.update_traces(textfont=dict(color="#e2f4ff", family="Share Tech Mono"))
+    fig.update_xaxes(**AXIS_STYLE)
+    fig.update_yaxes(**AXIS_STYLE)
     return fig
 
 # ─── ROLLING VOLATILITY CHART ──────────────────────────────────────────────────
@@ -674,6 +683,8 @@ def build_vol_chart(index_data, selected):
     fig.update_layout(height=320, yaxis_title="Ann. Vol (%)",
         title=dict(text="21-DAY ROLLING VOLATILITY",
                    font=dict(family="Orbitron", size=12, color="#00f5ff")), **PLOTLY_THEME)
+    fig.update_xaxes(**AXIS_STYLE)
+    fig.update_yaxes(**AXIS_STYLE)
     return fig
 
 # ─── DRAWDOWN CHART ────────────────────────────────────────────────────────────
@@ -688,6 +699,8 @@ def build_drawdown_chart(index_data, selected):
     fig.update_layout(height=320, yaxis_title="Drawdown %",
         title=dict(text="PEAK-TO-TROUGH DRAWDOWN",
                    font=dict(family="Orbitron", size=12, color="#00f5ff")), **PLOTLY_THEME)
+    fig.update_xaxes(**AXIS_STYLE)
+    fig.update_yaxes(**AXIS_STYLE)
     return fig
 
 # ─── SECTOR HEATMAP ────────────────────────────────────────────────────────────
@@ -713,6 +726,8 @@ def build_sector_treemap(sector_data, period):
         title=dict(text=f"SECTOR HEATMAP ({period})",
                    font=dict(family="Orbitron", size=12, color="#00f5ff")),
         coloraxis_showscale=False)
+    fig.update_xaxes(**AXIS_STYLE)
+    fig.update_yaxes(**AXIS_STYLE)
     return fig
 
 # ─── RETURNS DISTRIBUTION ──────────────────────────────────────────────────────
@@ -732,6 +747,8 @@ def build_returns_dist(df, name):
     fig.update_layout(height=300, xaxis_title="Daily Return (%)", yaxis_title="Frequency",
         title=dict(text=f"{name} — RETURN DISTRIBUTION",
                    font=dict(family="Orbitron", size=12, color="#00f5ff")), **PLOTLY_THEME)
+    fig.update_xaxes(**AXIS_STYLE)
+    fig.update_yaxes(**AXIS_STYLE)
     return fig
 
 # ─── MAIN ──────────────────────────────────────────────────────────────────────
@@ -909,6 +926,8 @@ def main():
             fig_cmp.update_layout(height=450, hovermode="x unified",
                 yaxis_title="Normalized (Base=100)" if normalize else "Price",
                 **PLOTLY_THEME)
+            fig_cmp.update_xaxes(**AXIS_STYLE)
+            fig_cmp.update_yaxes(**AXIS_STYLE)
             st.plotly_chart(fig_cmp, use_container_width=True)
 
         with c_corr:
@@ -938,6 +957,8 @@ def main():
                 fig_ret.update_layout(height=200, xaxis_title="Return %", **PLOTLY_THEME,
                     title=dict(text=f"TOTAL RETURN COMPARISON ({selected_period_label.upper()})",
                                font=dict(family="Orbitron", size=12, color="#00f5ff")))
+                fig_ret.update_xaxes(**AXIS_STYLE)
+                fig_ret.update_yaxes(**AXIS_STYLE)
                 st.plotly_chart(fig_ret, use_container_width=True)
 
     # ════════════════════════════════════════════════════════════════════════
@@ -969,6 +990,8 @@ def main():
                         line=dict(color=NEON[i % len(NEON)], width=2)))
                 fig_sec.update_layout(height=380, yaxis_title="Rebased to 100",
                     hovermode="x unified", **PLOTLY_THEME)
+                fig_sec.update_xaxes(**AXIS_STYLE)
+                fig_sec.update_yaxes(**AXIS_STYLE)
                 st.plotly_chart(fig_sec, use_container_width=True)
 
             # Sector bar
@@ -991,6 +1014,8 @@ def main():
                 fig_secbar.update_layout(height=380, xaxis_title="Return %", **PLOTLY_THEME,
                     title=dict(text="SECTOR TOTAL RETURNS",
                                font=dict(family="Orbitron", size=12, color="#00f5ff")))
+                fig_secbar.update_xaxes(**AXIS_STYLE)
+                fig_secbar.update_yaxes(**AXIS_STYLE)
                 st.plotly_chart(fig_secbar, use_container_width=True)
 
     # ════════════════════════════════════════════════════════════════════════
@@ -1064,6 +1089,8 @@ def main():
             fig_rs.update_layout(height=250, yaxis_title="Sharpe Ratio",
                 title=dict(text="63-DAY ROLLING SHARPE RATIO",
                            font=dict(family="Orbitron", size=12, color="#00f5ff")), **PLOTLY_THEME)
+            fig_rs.update_xaxes(**AXIS_STYLE)
+            fig_rs.update_yaxes(**AXIS_STYLE)
             st.plotly_chart(fig_rs, use_container_width=True)
 
         # Monthly returns heatmap
@@ -1084,6 +1111,8 @@ def main():
                 title=dict(text=f"{sel_stat} — MONTHLY RETURNS (%)",
                            font=dict(family="Orbitron", size=12, color="#00f5ff")),
                 coloraxis_showscale=False)
+            fig_mhm.update_xaxes(**AXIS_STYLE)
+            fig_mhm.update_yaxes(**AXIS_STYLE)
             st.plotly_chart(fig_mhm, use_container_width=True)
 
 if __name__ == "__main__":
