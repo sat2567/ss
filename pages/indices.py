@@ -237,19 +237,19 @@ INDEX_TICKERS = {
     "NIFTY 50":         "^NSEI",
     "NIFTY BANK":       "^NSEBANK",
     "NIFTY MIDCAP":     "^NSMIDCP",
-    "NIFTY SMALLCAP":   "^CNXSC",          # NIFTY SMLCAP 100
     "NIFTY IT":         "^CNXIT",
     "SENSEX":           "^BSESN",
     "INDIA VIX":        "^INDIAVIX",
+    # SMALLCAP is loaded separately from axis_niftyetf.xlsx (see resolve_smallcap)
 }
 
-# Fallback tickers for NIFTY SMALLCAP — tried in order if primary fails
+# Yahoo Finance fallbacks — only used if axis_niftyetf.xlsx is not found
 SMALLCAP_FALLBACKS = [
-    ("NIFTY SMALLCAP",     "^CNXSC"),
-    ("NIFTY SMLCAP 250",   "NIFTYSMLCAP250.NS"),
-    ("NIFTY SMLCAP 50",    "NIFTYSMLCAP50.NS"),
-    ("BSE SMALLCAP",       "BSE-SMLCAP.BO"),
-    ("BSE SMLCAP 250",     "SML250.BO"),
+    ("NIFTY SMLCAP 100",  "^CNXSC"),
+    ("NIFTY SMLCAP 250",  "NIFTYSMLCAP250.NS"),
+    ("NIFTY SMLCAP 50",   "NIFTYSMLCAP50.NS"),
+    ("BSE SMALLCAP",      "BSE-SMLCAP.BO"),
+    ("BSE SMLCAP 250",    "SML250.BO"),
 ]
 
 SECTOR_TICKERS = {
@@ -319,23 +319,34 @@ def fetch_single_ticker(ticker, period):
 
 def find_smallcap_etf_file():
     """
-    Locate axis_niftyetf.xlsx in the same places the app looks for alldata.xlsx.
+    Locate axis_niftyetf.xlsx — checks every likely location on Streamlit Cloud and locally.
     Returns the resolved path or None.
     """
     import os
-    base = os.path.dirname(os.path.abspath(__file__))
+    try:
+        base = os.path.dirname(os.path.abspath(__file__))
+    except NameError:
+        base = os.getcwd()
+
     candidates = [
         os.path.join(base, "axis_niftyetf.xlsx"),
         os.path.join(base, "..", "axis_niftyetf.xlsx"),
         os.path.join(base, "..", "..", "axis_niftyetf.xlsx"),
         os.path.join(os.getcwd(), "axis_niftyetf.xlsx"),
+        # Streamlit Cloud mounts the repo at /mount/src/<repo_name>/
         "/mount/src/ss/axis_niftyetf.xlsx",
         "/mount/src/ss/pages/axis_niftyetf.xlsx",
+        # Generic fallback for any repo name
+        *[f"/mount/src/{d}/axis_niftyetf.xlsx"
+          for d in (os.listdir("/mount/src") if os.path.isdir("/mount/src") else [])],
     ]
     for p in candidates:
-        resolved = os.path.abspath(p)
-        if os.path.isfile(resolved):
-            return resolved
+        try:
+            resolved = os.path.abspath(p)
+            if os.path.isfile(resolved):
+                return resolved
+        except:
+            continue
     return None
 
 
@@ -369,31 +380,38 @@ def load_smallcap_etf(file_path):
         return None
 
 
-def resolve_smallcap(period):
+def resolve_smallcap(period, uploaded_file=None):
     """
-    1. Try the local ETF file (axis_niftyetf.xlsx) — best source, full history.
-    2. Fall back to live Yahoo Finance tickers if file not found.
+    1. Uploaded file from sidebar (if provided)
+    2. Local axis_niftyetf.xlsx from repo
+    3. Yahoo Finance fallback tickers
     Returns (display_name, dataframe, source_label).
     """
-    # ── Primary: local ETF file ──────────────────────────────────────────────
+    period_days = {
+        "1mo": 30, "3mo": 91, "6mo": 182,
+        "1y": 365, "2y": 730, "5y": 1825, "max": 99999
+    }
+    days = period_days.get(period, 365)
+
+    def filter_and_return(df, name, source):
+        cutoff = df.index.max() - pd.Timedelta(days=days)
+        filtered = df[df.index >= cutoff]
+        return name, (filtered if len(filtered) >= 5 else df), source
+
+    # ── 1. Uploaded file ────────────────────────────────────────────────────
+    if uploaded_file is not None:
+        df = load_smallcap_etf(uploaded_file)
+        if df is not None:
+            return filter_and_return(df, "NIFTY SMALLCAP 50 ETF", "📤 Uploaded file")
+
+    # ── 2. Local repo file ──────────────────────────────────────────────────
     etf_path = find_smallcap_etf_file()
     if etf_path:
         df = load_smallcap_etf(etf_path)
         if df is not None:
-            # Filter to requested period
-            period_days = {
-                "1mo": 30, "3mo": 91, "6mo": 182,
-                "1y": 365, "2y": 730, "5y": 1825, "max": 99999
-            }
-            days = period_days.get(period, 365)
-            cutoff = df.index.max() - pd.Timedelta(days=days)
-            df_filtered = df[df.index >= cutoff]
-            if len(df_filtered) >= 5:
-                return "NIFTY SMALLCAP 50 ETF", df_filtered, "📁 Local ETF file"
-            # If period is too short (e.g. file only has recent data), return all
-            return "NIFTY SMALLCAP 50 ETF", df, "📁 Local ETF file"
+            return filter_and_return(df, "NIFTY SMALLCAP 50 ETF", "📁 Repo file")
 
-    # ── Fallback: live Yahoo Finance tickers ────────────────────────────────
+    # ── 3. Yahoo Finance fallback ───────────────────────────────────────────
     for display_name, ticker in SMALLCAP_FALLBACKS:
         df = fetch_single_ticker(ticker, period)
         if df is not None:
@@ -879,6 +897,15 @@ def main():
         ma_windows = st.multiselect("MOVING AVERAGES", [20, 50, 100, 200], default=[50, 200])
         normalize  = st.checkbox("NORMALIZE (Base=100)", value=True)
         st.markdown("---")
+
+        # Smallcap ETF file — auto-loaded from repo or manual upload
+        auto_etf_path = find_smallcap_etf_file()
+        if not auto_etf_path:
+            st.markdown('<p style="font-family:Share Tech Mono;font-size:9px;color:#ff6b35;letter-spacing:1px;">📂 SMALLCAP ETF FILE</p>', unsafe_allow_html=True)
+            uploaded_etf = st.file_uploader("Upload axis_niftyetf.xlsx", type=["xlsx"], label_visibility="collapsed")
+        else:
+            uploaded_etf = None
+
         st.markdown('<p style="font-family:Share Tech Mono;font-size:9px;color:#3a5a70;letter-spacing:1px;">DATA: YAHOO FINANCE<br>REFRESH: 30 MIN TTL</p>', unsafe_allow_html=True)
         sc_status_placeholder = st.empty()  # filled after data loads
 
@@ -892,24 +919,17 @@ def main():
         return
 
     # ── SMALLCAP RESOLUTION ─────────────────────────────────────────────────
-    # Priority: local axis_niftyetf.xlsx → Yahoo Finance fallbacks
-    sc_key = next((k for k in index_data if "SMALLCAP" in k.upper() or "SMLCAP" in k.upper()), None)
-    if sc_key is None or index_data.get(sc_key, pd.DataFrame()).empty:
-        sc_name, sc_df, sc_source = resolve_smallcap(selected_period)
-        if sc_df is not None:
-            index_data[sc_name] = sc_df
-            sc_status_placeholder.markdown(
-                f'<p style="font-family:Share Tech Mono;font-size:9px;color:#00ff88;letter-spacing:1px;">{sc_source}<br>{sc_name}</p>',
-                unsafe_allow_html=True
-            )
-        else:
-            sc_status_placeholder.markdown(
-                '<p style="font-family:Share Tech Mono;font-size:9px;color:#ff3366;letter-spacing:1px;">⚠️ SMALLCAP: no data</p>',
-                unsafe_allow_html=True
-            )
+    # Smallcap is NOT in INDEX_TICKERS — always loaded from ETF file or fallback
+    sc_name, sc_df, sc_source = resolve_smallcap(selected_period, uploaded_file=uploaded_etf)
+    if sc_df is not None:
+        index_data[sc_name] = sc_df
+        sc_status_placeholder.markdown(
+            f'<p style="font-family:Share Tech Mono;font-size:9px;color:#00ff88;letter-spacing:1px;">{sc_source}<br>{sc_name}</p>',
+            unsafe_allow_html=True
+        )
     else:
         sc_status_placeholder.markdown(
-            f'<p style="font-family:Share Tech Mono;font-size:9px;color:#00ff88;letter-spacing:1px;">✅ {sc_key}</p>',
+            '<p style="font-family:Share Tech Mono;font-size:9px;color:#ff3366;letter-spacing:1px;">⚠️ SMALLCAP: no data<br>Add axis_niftyetf.xlsx to repo</p>',
             unsafe_allow_html=True
         )
 
