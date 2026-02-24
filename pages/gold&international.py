@@ -417,8 +417,10 @@ def build_returns_bar(data_dict, period_label):
                    font=dict(family="Orbitron", size=12, color="#00f5ff")),
         **PLOTLY_THEME,
     )
-    fig.update_xaxes(**AXIS_STYLE, zeroline=True, zerolinewidth=1)
-    fig.update_yaxes(**AXIS_STYLE, showgrid=False)
+    axis_x = dict(AXIS_STYLE); axis_x.update(zeroline=True, zerolinewidth=1)
+    axis_y = dict(AXIS_STYLE); axis_y.update(showgrid=False)
+    fig.update_xaxes(**axis_x)
+    fig.update_yaxes(**axis_y)
     return fig
 
 
