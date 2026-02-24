@@ -852,7 +852,7 @@ def main():
 
         # Build full chart
         fig_full, df_enriched = build_full_chart(df_asset, selected_asset, ma_windows)
-        st.plotly_chart(fig_full, use_container_width=True)
+        st.plotly_chart(fig_full, use_container_width=True, key="chart_full")
 
         # Bottom panels
         c1, c2, c3 = st.columns([1, 1, 1])
@@ -899,7 +899,7 @@ def main():
             st.markdown(fib_html, unsafe_allow_html=True)
 
         # Fibonacci chart
-        st.plotly_chart(build_fib_chart(df_enriched, selected_asset), use_container_width=True)
+        st.plotly_chart(build_fib_chart(df_enriched, selected_asset), use_container_width=True, key="chart_fib")
 
     # ════════════════════════════════════════════════════════════════════════
     # TAB 2 — INDEX COMPARISON
@@ -928,13 +928,13 @@ def main():
                 **PLOTLY_THEME)
             fig_cmp.update_xaxes(**AXIS_STYLE)
             fig_cmp.update_yaxes(**AXIS_STYLE)
-            st.plotly_chart(fig_cmp, use_container_width=True)
+            st.plotly_chart(fig_cmp, use_container_width=True, key="chart_cmp")
 
         with c_corr:
             if len(indices_to_plot) >= 2:
                 st.plotly_chart(build_corr_heatmap(
                     {k: index_data[k] for k in indices_to_plot if k in index_data}
-                ), use_container_width=True)
+                ), use_container_width=True, key="chart_corr")
             else:
                 st.info("Select ≥2 indices for correlation.")
 
@@ -959,7 +959,7 @@ def main():
                                font=dict(family="Orbitron", size=12, color="#00f5ff")))
                 fig_ret.update_xaxes(**AXIS_STYLE)
                 fig_ret.update_yaxes(**AXIS_STYLE)
-                st.plotly_chart(fig_ret, use_container_width=True)
+                st.plotly_chart(fig_ret, use_container_width=True, key="chart_ret")
 
     # ════════════════════════════════════════════════════════════════════════
     # TAB 3 — SECTOR ANALYSIS
@@ -973,7 +973,7 @@ def main():
                 st.markdown('<div class="section-head">SECTOR HEATMAP</div>', unsafe_allow_html=True)
                 fig_tree = build_sector_treemap(sector_data, selected_period_label)
                 if fig_tree:
-                    st.plotly_chart(fig_tree, use_container_width=True)
+                    st.plotly_chart(fig_tree, use_container_width=True, key="chart_tree")
 
             with c_line:
                 st.markdown('<div class="section-head">RELATIVE STRENGTH</div>', unsafe_allow_html=True)
@@ -992,7 +992,7 @@ def main():
                     hovermode="x unified", **PLOTLY_THEME)
                 fig_sec.update_xaxes(**AXIS_STYLE)
                 fig_sec.update_yaxes(**AXIS_STYLE)
-                st.plotly_chart(fig_sec, use_container_width=True)
+                st.plotly_chart(fig_sec, use_container_width=True, key="chart_sec")
 
             # Sector bar
             sec_rows = []
@@ -1016,7 +1016,7 @@ def main():
                                font=dict(family="Orbitron", size=12, color="#00f5ff")))
                 fig_secbar.update_xaxes(**AXIS_STYLE)
                 fig_secbar.update_yaxes(**AXIS_STYLE)
-                st.plotly_chart(fig_secbar, use_container_width=True)
+                st.plotly_chart(fig_secbar, use_container_width=True, key="chart_secbar")
 
     # ════════════════════════════════════════════════════════════════════════
     # TAB 4 — RISK & VOLATILITY
@@ -1027,13 +1027,13 @@ def main():
 
         c_dd, c_vol = st.columns(2)
         with c_dd:
-            st.plotly_chart(build_drawdown_chart(index_data, risk_indices), use_container_width=True)
+            st.plotly_chart(build_drawdown_chart(index_data, risk_indices), use_container_width=True, key="chart_dd")
         with c_vol:
-            st.plotly_chart(build_vol_chart(index_data, risk_indices), use_container_width=True)
+            st.plotly_chart(build_vol_chart(index_data, risk_indices), use_container_width=True, key="chart_vol")
 
         # Returns distribution
         if risk_indices and risk_indices[0] in index_data:
-            st.plotly_chart(build_returns_dist(index_data[risk_indices[0]], risk_indices[0]), use_container_width=True)
+            st.plotly_chart(build_returns_dist(index_data[risk_indices[0]], risk_indices[0]), use_container_width=True, key="chart_dist_risk")
 
         # Risk metrics table
         st.markdown('<div class="section-head">RISK METRICS TABLE</div>', unsafe_allow_html=True)
@@ -1075,7 +1075,7 @@ def main():
             st.markdown('<div class="section-head">QUANTITATIVE STATS</div>', unsafe_allow_html=True)
             st.markdown(stats_panel_html(df_stat, selected_period_label), unsafe_allow_html=True)
         with c_dist:
-            st.plotly_chart(build_returns_dist(df_stat, sel_stat), use_container_width=True)
+            st.plotly_chart(build_returns_dist(df_stat, sel_stat), use_container_width=True, key="chart_dist_stat")
 
             # Rolling Sharpe
             rets = df_stat['Close'].pct_change().dropna()
@@ -1091,7 +1091,7 @@ def main():
                            font=dict(family="Orbitron", size=12, color="#00f5ff")), **PLOTLY_THEME)
             fig_rs.update_xaxes(**AXIS_STYLE)
             fig_rs.update_yaxes(**AXIS_STYLE)
-            st.plotly_chart(fig_rs, use_container_width=True)
+            st.plotly_chart(fig_rs, use_container_width=True, key="chart_rs")
 
         # Monthly returns heatmap
         st.markdown('<div class="section-head">MONTHLY RETURNS HEATMAP</div>', unsafe_allow_html=True)
@@ -1113,7 +1113,7 @@ def main():
                 coloraxis_showscale=False)
             fig_mhm.update_xaxes(**AXIS_STYLE)
             fig_mhm.update_yaxes(**AXIS_STYLE)
-            st.plotly_chart(fig_mhm, use_container_width=True)
+            st.plotly_chart(fig_mhm, use_container_width=True, key="chart_mhm")
 
 if __name__ == "__main__":
     main()
