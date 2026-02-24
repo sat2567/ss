@@ -312,22 +312,94 @@ def fetch_single_ticker(ticker, period):
         df = df.dropna(how='all').ffill()
         if df.index.tz is not None:
             df.index = df.index.tz_localize(None)
-        # Need at least 5 rows to be useful
         return df if len(df) >= 5 else None
     except:
         return None
 
 
+def find_smallcap_etf_file():
+    """
+    Locate axis_niftyetf.xlsx in the same places the app looks for alldata.xlsx.
+    Returns the resolved path or None.
+    """
+    import os
+    base = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(base, "axis_niftyetf.xlsx"),
+        os.path.join(base, "..", "axis_niftyetf.xlsx"),
+        os.path.join(base, "..", "..", "axis_niftyetf.xlsx"),
+        os.path.join(os.getcwd(), "axis_niftyetf.xlsx"),
+        "/mount/src/ss/axis_niftyetf.xlsx",
+        "/mount/src/ss/pages/axis_niftyetf.xlsx",
+    ]
+    for p in candidates:
+        resolved = os.path.abspath(p)
+        if os.path.isfile(resolved):
+            return resolved
+    return None
+
+
+@st.cache_data(ttl=86400)   # cache for 24h — file doesn't change during the day
+def load_smallcap_etf(file_path):
+    """
+    Parse axis_niftyetf.xlsx → a DataFrame shaped like yfinance output.
+    Columns: Open, High, Low, Close, Volume  (OHLCV — price-only so O=H=L=C=NAV)
+    Index: DatetimeIndex
+    """
+    try:
+        raw = pd.read_excel(file_path, header=None)
+        # Data starts at row index 4 (rows 0-3 are headers/metadata)
+        data = raw.iloc[4:, :2].copy()
+        data.columns = ["Date", "NAV"]
+        data["Date"] = pd.to_datetime(data["Date"], errors="coerce")
+        data["NAV"]  = pd.to_numeric(data["NAV"],  errors="coerce")
+        data = data.dropna(subset=["Date", "NAV"]).reset_index(drop=True)
+        data = data.sort_values("Date").reset_index(drop=True)
+        data.set_index("Date", inplace=True)
+        # Shape it like a yfinance OHLCV frame so all existing chart code works
+        df = pd.DataFrame({
+            "Open":   data["NAV"],
+            "High":   data["NAV"],
+            "Low":    data["NAV"],
+            "Close":  data["NAV"],
+            "Volume": 0,
+        }, index=data.index)
+        return df if len(df) >= 5 else None
+    except Exception as e:
+        return None
+
+
 def resolve_smallcap(period):
     """
-    Try each smallcap fallback ticker in order.
-    Returns (display_name, dataframe) for the first one that works, or (None, None).
+    1. Try the local ETF file (axis_niftyetf.xlsx) — best source, full history.
+    2. Fall back to live Yahoo Finance tickers if file not found.
+    Returns (display_name, dataframe, source_label).
     """
+    # ── Primary: local ETF file ──────────────────────────────────────────────
+    etf_path = find_smallcap_etf_file()
+    if etf_path:
+        df = load_smallcap_etf(etf_path)
+        if df is not None:
+            # Filter to requested period
+            period_days = {
+                "1mo": 30, "3mo": 91, "6mo": 182,
+                "1y": 365, "2y": 730, "5y": 1825, "max": 99999
+            }
+            days = period_days.get(period, 365)
+            cutoff = df.index.max() - pd.Timedelta(days=days)
+            df_filtered = df[df.index >= cutoff]
+            if len(df_filtered) >= 5:
+                return "NIFTY SMALLCAP 50 ETF", df_filtered, "📁 Local ETF file"
+            # If period is too short (e.g. file only has recent data), return all
+            return "NIFTY SMALLCAP 50 ETF", df, "📁 Local ETF file"
+
+    # ── Fallback: live Yahoo Finance tickers ────────────────────────────────
     for display_name, ticker in SMALLCAP_FALLBACKS:
         df = fetch_single_ticker(ticker, period)
         if df is not None:
-            return display_name, df
-    return None, None
+            return display_name, df, f"🌐 Yahoo ({ticker})"
+
+    return None, None, "❌ No data found"
 
 
 # ─── TECHNICAL INDICATORS ──────────────────────────────────────────────────────
@@ -819,22 +891,27 @@ def main():
         st.error("NO DATA FETCHED. CHECK CONNECTION.")
         return
 
-    # ── SMALLCAP FALLBACK ───────────────────────────────────────────────────
-    # If the primary NIFTY SMALLCAP ticker returned no data, try fallbacks
-    smallcap_status = ""
-    if "NIFTY SMALLCAP" not in index_data or index_data.get("NIFTY SMALLCAP", pd.DataFrame()).empty:
-        sc_name, sc_df = resolve_smallcap(selected_period)
+    # ── SMALLCAP RESOLUTION ─────────────────────────────────────────────────
+    # Priority: local axis_niftyetf.xlsx → Yahoo Finance fallbacks
+    sc_key = next((k for k in index_data if "SMALLCAP" in k.upper() or "SMLCAP" in k.upper()), None)
+    if sc_key is None or index_data.get(sc_key, pd.DataFrame()).empty:
+        sc_name, sc_df, sc_source = resolve_smallcap(selected_period)
         if sc_df is not None:
             index_data[sc_name] = sc_df
-            smallcap_status = f"✅ {sc_name} loaded"
+            sc_status_placeholder.markdown(
+                f'<p style="font-family:Share Tech Mono;font-size:9px;color:#00ff88;letter-spacing:1px;">{sc_source}<br>{sc_name}</p>',
+                unsafe_allow_html=True
+            )
         else:
-            smallcap_status = "⚠️ No smallcap data available"
+            sc_status_placeholder.markdown(
+                '<p style="font-family:Share Tech Mono;font-size:9px;color:#ff3366;letter-spacing:1px;">⚠️ SMALLCAP: no data</p>',
+                unsafe_allow_html=True
+            )
     else:
-        smallcap_status = "✅ NIFTY SMALLCAP 100"
-    sc_status_placeholder.markdown(
-        f'<p style="font-family:Share Tech Mono;font-size:9px;color:#3a5a70;letter-spacing:1px;">SMALLCAP: {smallcap_status}</p>',
-        unsafe_allow_html=True
-    )
+        sc_status_placeholder.markdown(
+            f'<p style="font-family:Share Tech Mono;font-size:9px;color:#00ff88;letter-spacing:1px;">✅ {sc_key}</p>',
+            unsafe_allow_html=True
+        )
 
     # ── HEADER ──────────────────────────────────────────────────────────────
     now = datetime.now().strftime("%d %b %Y  //  %H:%M:%S")
