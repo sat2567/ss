@@ -4,12 +4,12 @@ import yfinance as yf
 from datetime import datetime, timedelta
 
 # ─── PAGE CONFIG ───────────────────────────────────────────────────────────────
-st.set_page_config(layout="wide", page_title="Advanced Market Performance", page_icon="🛡️")
+st.set_page_config(layout="wide", page_title="Market Performance", page_icon="📈")
 
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700&display=swap');
-    :root { --accent: #00f5ff; --bg: #020408; --panel: #0a1628; }
+    :root { --accent: #00f5ff; --bg: #020408; }
     .stApp { background: var(--bg); color: #e2f4ff; font-family: 'Share Tech Mono', monospace; }
     .section-head {
         font-family: 'Orbitron', sans-serif;
@@ -23,18 +23,17 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ─── TICKERS (Updated with Next 50 and Defence) ────────────────────────────────
+# ─── TICKERS ───────────────────────────────────────────────────────────────────
 INDICES = {
     "NIFTY 50": "^NSEI",
-    "NIFTY NEXT 50": "^NSMIDCP", # Often represented as Junior Nifty
+    "NIFTY NEXT 50": "^NSEJOCKEY", # Alternative: "NIFTYJR.NS"
     "NIFTY BANK": "^NSEBANK",
     "NIFTY MIDCAP 100": "^CNXMID",
-    "NIFTY IT": "^CNXIT",
     "SENSEX": "^BSESN"
 }
 
 SECTORS = {
-    "Defence": "NIFTY_DEFENCE.NS", # Custom ticker for Defense index
+    "Defence": "NIFTY_DEFENCE.NS", 
     "Auto": "^CNXAUTO",
     "Pharma": "^CNXPHARMA",
     "Consumption": "^CNXCONSUMP",
@@ -48,91 +47,98 @@ SECTORS = {
 # ─── DATA FETCHING ─────────────────────────────────────────────────────────────
 @st.cache_data(ttl=3600)
 def get_market_data(tickers):
-    # Using a slightly longer period to ensure we have enough data for lookbacks
+    # Fetching 2 years of data to be safe
     data = yf.download(list(tickers.values()), period="2y", interval="1d", auto_adjust=True, progress=False)
     
-    # Handle single ticker vs multi-ticker dataframes
-    if len(tickers) > 1:
-        return {name: data['Close'][ticker].dropna() for name, ticker in tickers.items()}
-    else:
-        name = list(tickers.keys())[0]
-        return {name: data['Close'].dropna()}
+    output = {}
+    for name, ticker in tickers.items():
+        try:
+            # Handle MultiIndex columns if multiple tickers were returned
+            if isinstance(data.columns, pd.MultiIndex):
+                series = data['Close'][ticker].dropna()
+            else:
+                series = data['Close'].dropna()
+            
+            # Only add to output if we actually have data points
+            if not series.empty:
+                output[name] = series
+        except Exception:
+            continue
+    return output
 
-def calc_pct(series, start_date=None, end_date=None, days=None):
+def calc_pct(series, start_dt=None, end_dt=None, days=None):
+    if series is None or series.empty: return 0.0
     try:
         if days:
-            # Trailing days lookback
             cutoff = series.index.max() - timedelta(days=days)
             subset = series.loc[series.index >= cutoff]
-        elif start_date and end_date:
-            # Date range lookback
-            subset = series.loc[str(start_date):str(end_dt)]
         else:
-            return 0.0
-
+            subset = series.loc[str(start_dt):str(end_dt)]
+        
         if len(subset) < 2: return 0.0
-        val_start = subset.iloc[0]
-        val_end = subset.iloc[-1]
-        return ((val_end - val_start) / val_start) * 100
-    except Exception:
+        return ((subset.iloc[-1] - subset.iloc[0]) / subset.iloc[0]) * 100
+    except:
         return 0.0
 
 # ─── MAIN UI ──────────────────────────────────────────────────────────────────
 def main():
-    st.markdown('<h1 style="font-family:Orbitron; color:#00f5ff;">BHARAT PERIODIC PERFORMANCE</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 style="font-family:Orbitron; color:#00f5ff;">BHARAT PERFORMANCE TERMINAL</h1>', unsafe_allow_html=True)
     
     # 1. DATE CONTROLS
-    st.markdown('<div class="section-head">SET DATE PARAMETERS</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-head">SET PARAMETERS</div>', unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 1, 2])
     with col1:
-        global start_dt
-        start_dt = st.date_input("START DATE", datetime.now() - timedelta(days=30))
+        s_dt = st.date_input("START DATE", datetime.now() - timedelta(days=30))
     with col2:
-        global end_dt
-        end_dt = st.date_input("END DATE", datetime.now())
+        e_dt = st.date_input("END DATE", datetime.now())
     with col3:
-        st.info("The tables show 1-Week/1-Month trailing data alongside your Custom Date Range.")
+        st.write("") # Spacer
 
     # 2. FETCH DATA
-    with st.spinner("Fetching data for Indices and Sectors..."):
-        idx_data = get_market_data(INDICES)
-        sec_data = get_market_data(SECTORS)
+    with st.spinner("Downloading market data..."):
+        idx_dict = get_market_data(INDICES)
+        sec_dict = get_market_data(SECTORS)
 
-    # 3. MAJOR INDICES TABLE
-    st.markdown('<div class="section-head">MAJOR NIFTY INDICES</div>', unsafe_allow_html=True)
+    # 3. INDICES TABLE
+    st.markdown('<div class="section-head">MAJOR INDICES</div>', unsafe_allow_html=True)
+    idx_rows = []
+    for name, series in idx_dict.items():
+        # The FIX: Check if series has data before accessing index -1
+        if not series.empty:
+            idx_rows.append({
+                "Index": name,
+                "1 Week": f"{calc_pct(series, days=7):+.2f}%",
+                "1 Month": f"{calc_pct(series, days=30):+.2f}%",
+                "Custom Range": f"{calc_pct(series, start_dt=s_dt, end_dt=e_dt):+.2f}%",
+                "LTP": f"{series.iloc[-1]:,.2f}"
+            })
     
-    idx_results = []
-    for name, series in idx_data.items():
-        idx_results.append({
-            "Index Name": name,
-            "1 Week": f"{calc_pct(series, days=7):+.2f}%",
-            "1 Month": f"{calc_pct(series, days=30):+.2f}%",
-            "Custom Range": f"{calc_pct(series, start_date=start_dt, end_date=end_dt):+.2f}%",
-            "LTP": f"{series.iloc[-1]:,.2f}"
-        })
-    st.table(pd.DataFrame(idx_results))
+    if idx_rows:
+        st.table(pd.DataFrame(idx_rows))
+    else:
+        st.warning("No index data found. Please check ticker symbols.")
 
-    # 4. EXPANDED SECTOR PERFORMANCE TABLE
-    st.markdown('<div class="section-head">SECTOR PERFORMANCE (INCL. DEFENCE & GROWTH)</div>', unsafe_allow_html=True)
+    # 4. SECTORS TABLE
+    st.markdown('<div class="section-head">SECTOR PERFORMANCE</div>', unsafe_allow_html=True)
+    sec_rows = []
+    for name, series in sec_dict.items():
+        if not series.empty:
+            w1 = calc_pct(series, days=7)
+            sec_rows.append({
+                "Sector": name,
+                "1 Week (%)": w1,
+                "1 Month (%)": calc_pct(series, days=30),
+                "Custom Range (%)": calc_pct(series, start_dt=s_dt, end_dt=e_dt)
+            })
     
-    sec_results = []
-    for name, series in sec_data.items():
-        w1_val = calc_pct(series, days=7)
-        sec_results.append({
-            "Sector": name,
-            "1 Week (%)": w1_val,
-            "1 Month (%)": calc_pct(series, days=30),
-            "Custom Range (%)": calc_pct(series, start_date=start_dt, end_date=end_dt)
-        })
-    
-    df_sec = pd.DataFrame(sec_results).sort_values("1 Week (%)", ascending=False)
-    
-    # Formatting for better readability
-    df_disp = df_sec.copy()
-    for col in ["1 Week (%)", "1 Month (%)", "Custom Range (%)"]:
-        df_disp[col] = df_disp[col].apply(lambda x: f"{x:+.2f}%")
-        
-    st.dataframe(df_disp, use_container_width=True, hide_index=True)
+    if sec_rows:
+        df_sec = pd.DataFrame(sec_rows).sort_values("1 Week (%)", ascending=False)
+        # Apply string formatting for display
+        for col in ["1 Week (%)", "1 Month (%)", "Custom Range (%)"]:
+            df_sec[col] = df_sec[col].apply(lambda x: f"{x:+.2f}%")
+        st.dataframe(df_sec, use_container_width=True, hide_index=True)
+    else:
+        st.warning("No sector data found.")
 
 if __name__ == "__main__":
     main()
