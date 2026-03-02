@@ -9,7 +9,14 @@ st.set_page_config(layout="wide", page_title="Market Performance", page_icon="�
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700&display=swap');
-    :root { --accent: #00f5ff; --bg: #020408; }
+    :root { 
+        --accent: #00f5ff; 
+        --bg: #020408; 
+        --border: #0d2535;
+        --bg-card: #0a1628;
+        --pos: #00ff88;
+        --neg: #ff3366;
+    }
     .stApp { background: var(--bg); color: #e2f4ff; font-family: 'Share Tech Mono', monospace; }
     .section-head {
         font-family: 'Orbitron', sans-serif;
@@ -20,6 +27,40 @@ st.markdown("""
         font-size: 14px;
         letter-spacing: 2px;
     }
+    
+    /* CUSTOM TABLE STYLING */
+    .custom-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+        font-family: 'Share Tech Mono', monospace;
+        font-size: 13px;
+    }
+    .custom-table th {
+        background-color: #0b3d60; /* Standard Blue Header */
+        color: #ffffff;            /* White Font */
+        padding: 10px;
+        text-align: right;
+        border: 1px solid var(--border);
+        font-weight: bold;
+    }
+    .custom-table th:first-child {
+        text-align: left;
+    }
+    .custom-table td {
+        padding: 8px 10px;
+        border: 1px solid var(--border);
+        text-align: right;
+        background-color: var(--bg-card);
+    }
+    .custom-table td:first-child {
+        text-align: left;
+        color: var(--accent);
+        font-weight: bold;
+    }
+    .val-pos { color: var(--pos); }
+    .val-neg { color: var(--neg); }
+    .val-neu { color: #a0c0d0; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -87,7 +128,6 @@ def calc_pct(series, start_dt=None, end_dt=None, days=None):
     except Exception:
         return 0.0
 
-# ─── HELPER: FIND LAST FRIDAY ─────────────────────────────────────────────────
 def get_last_friday():
     d = datetime.now().date()
     while d.weekday() != 4:  # 4 represents Friday
@@ -98,11 +138,10 @@ def get_last_friday():
 def main():
     st.markdown('<h1 style="font-family:Orbitron; color:#00f5ff;">BHARAT PERFORMANCE TERMINAL</h1>', unsafe_allow_html=True)
     
-    # Calculate Last Friday
     last_friday = get_last_friday()
     lf_str = last_friday.strftime("%d-%b")
     
-    # 1. DATE CONTROLS (Used for Indices Table only now)
+    # 1. DATE CONTROLS
     st.markdown('<div class="section-head">SET PARAMETERS (FOR MAJOR INDICES)</div>', unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 1, 2])
     with col1:
@@ -140,21 +179,19 @@ def main():
     else:
         st.warning("Data connection issues. Please try refreshing.")
 
-    # 4. SECTORS TABLE (ROLLING WEEKS ENDING LAST FRIDAY)
+    # 4. SECTORS TABLE (CUSTOM HTML RENDERING)
     st.markdown(f'<div class="section-head">SECTOR WEEKLY ROTATION (ENDING {lf_str.upper()})</div>', unsafe_allow_html=True)
     
     sec_rows = []
     for name, series in sec_dict.items():
         if series.empty: continue
         
-        # Isolate data up to Last Friday
         sub_series = series.loc[:str(last_friday)]
         if len(sub_series) < 2: continue
             
         p_0 = float(sub_series.iloc[-1])
         p_prev = float(sub_series.iloc[-2])
         
-        # Helper to get price 'X' days back from Last Friday
         def get_p(days_back):
             s = series.loc[:str(last_friday - timedelta(days=days_back))]
             return float(s.iloc[-1]) if not s.empty else None
@@ -166,7 +203,6 @@ def main():
         p_5w = get_p(35)
         p_1m = get_p(30)
         
-        # Safe percentage calculation
         def safe_ret(curr, prev):
             if curr is None or prev is None or prev == 0: return "N/A"
             return f"{((curr - prev) / prev) * 100:+.2f}%"
@@ -184,13 +220,38 @@ def main():
         })
 
     if sec_rows:
-        # Sort by W1 return by stripping the '%' and converting to float
         df_sec = pd.DataFrame(sec_rows)
-        # Handle "N/A" strings during sorting by temporarily converting to -999
+        # Sort by W1 return
         df_sec['sort_col'] = df_sec['W1'].apply(lambda x: float(x.replace('%', '')) if x != "N/A" else -999)
         df_sec = df_sec.sort_values("sort_col", ascending=False).drop(columns=['sort_col'])
         
-        st.dataframe(df_sec, use_container_width=True, hide_index=True)
+        # Build Custom HTML Table
+        html_table = '<table class="custom-table"><thead><tr>'
+        for col in df_sec.columns:
+            html_table += f'<th>{col}</th>'
+        html_table += '</tr></thead><tbody>'
+        
+        for _, row in df_sec.iterrows():
+            html_table += '<tr>'
+            for i, col in enumerate(df_sec.columns):
+                val = row[col]
+                if i == 0 or col == lf_str: # Sector Name or Base Price (No color coding)
+                    html_table += f'<td>{val}</td>'
+                else:
+                    # Color coding logic
+                    color_class = "val-neu"
+                    if "N/A" not in str(val):
+                        try:
+                            num = float(str(val).replace('%', '').replace('+', ''))
+                            if num > 0: color_class = "val-pos"
+                            elif num < 0: color_class = "val-neg"
+                        except:
+                            pass
+                    html_table += f'<td class="{color_class}">{val}</td>'
+            html_table += '</tr>'
+        html_table += '</tbody></table>'
+        
+        st.markdown(html_table, unsafe_allow_html=True)
     else:
         st.warning("No sector data found.")
 
