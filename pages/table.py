@@ -54,11 +54,9 @@ def get_market_data(tickers):
             if data.empty:
                 continue
                 
-            # FIX: Flatten multi-level columns if they exist (yfinance >= 0.2.40)
             if isinstance(data.columns, pd.MultiIndex):
                 data.columns = data.columns.get_level_values(0)
                 
-            # FIX: Extract the Close column and ensure it is strictly a 1D Series
             if 'Close' in data.columns:
                 series = data['Close']
                 if isinstance(series, pd.DataFrame):
@@ -66,7 +64,6 @@ def get_market_data(tickers):
             else:
                 series = data.iloc[:, 0]
                 
-            # .squeeze() forcefully reduces 1-column DataFrames to a Series
             output[name] = series.squeeze().dropna()
         except Exception:
             continue
@@ -83,7 +80,6 @@ def calc_pct(series, start_dt=None, end_dt=None, days=None):
         
         if len(subset) < 2: return 0.0
         
-        # FIX: Force extraction of pure python floats to avoid TypeError
         start_val = float(subset.iloc[0])
         end_val = float(subset.iloc[-1])
         
@@ -91,19 +87,30 @@ def calc_pct(series, start_dt=None, end_dt=None, days=None):
     except Exception:
         return 0.0
 
+# ─── HELPER: FIND LAST FRIDAY ─────────────────────────────────────────────────
+def get_last_friday():
+    d = datetime.now().date()
+    while d.weekday() != 4:  # 4 represents Friday
+        d -= timedelta(days=1)
+    return d
+
 # ─── MAIN UI ──────────────────────────────────────────────────────────────────
 def main():
     st.markdown('<h1 style="font-family:Orbitron; color:#00f5ff;">BHARAT PERFORMANCE TERMINAL</h1>', unsafe_allow_html=True)
     
-    # 1. DATE CONTROLS
-    st.markdown('<div class="section-head">SET PARAMETERS</div>', unsafe_allow_html=True)
+    # Calculate Last Friday
+    last_friday = get_last_friday()
+    lf_str = last_friday.strftime("%d-%b")
+    
+    # 1. DATE CONTROLS (Used for Indices Table only now)
+    st.markdown('<div class="section-head">SET PARAMETERS (FOR MAJOR INDICES)</div>', unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 1, 2])
     with col1:
         s_dt = st.date_input("START DATE", datetime.now() - timedelta(days=30))
     with col2:
         e_dt = st.date_input("END DATE", datetime.now())
     with col3:
-        st.write("") 
+        st.info(f"Sector Table is locked to week-over-week ending on Last Friday: {lf_str}") 
 
     # 2. FETCH DATA
     with st.spinner("Accessing Real-time Market Data..."):
@@ -119,14 +126,13 @@ def main():
     for name in display_order:
         if name in idx_dict:
             series = idx_dict[name]
-            # Extra safety check to ensure series isn't empty
             if not series.empty:
                 idx_rows.append({
                     "Index": name,
                     "1 Week": f"{calc_pct(series, days=7):+.2f}%",
                     "1 Month": f"{calc_pct(series, days=30):+.2f}%",
                     "Custom Range": f"{calc_pct(series, start_dt=s_dt, end_dt=e_dt):+.2f}%",
-                    "LTP": f"{float(series.iloc[-1]):,.2f}" # Forced float here as well
+                    "LTP": f"{float(series.iloc[-1]):,.2f}"
                 })
     
     if idx_rows:
@@ -134,23 +140,56 @@ def main():
     else:
         st.warning("Data connection issues. Please try refreshing.")
 
-    # 4. SECTORS TABLE
-    st.markdown('<div class="section-head">SECTOR PERFORMANCE</div>', unsafe_allow_html=True)
+    # 4. SECTORS TABLE (ROLLING WEEKS ENDING LAST FRIDAY)
+    st.markdown(f'<div class="section-head">SECTOR WEEKLY ROTATION (ENDING {lf_str.upper()})</div>', unsafe_allow_html=True)
+    
     sec_rows = []
     for name, series in sec_dict.items():
-        if not series.empty:
-            sec_rows.append({
-                "Sector": name,
-                "1 Week (%)": calc_pct(series, days=7),
-                "1 Month (%)": calc_pct(series, days=30),
-                "Custom Range (%)": calc_pct(series, start_dt=s_dt, end_dt=e_dt)
-            })
-    
+        if series.empty: continue
+        
+        # Isolate data up to Last Friday
+        sub_series = series.loc[:str(last_friday)]
+        if len(sub_series) < 2: continue
+            
+        p_0 = float(sub_series.iloc[-1])
+        p_prev = float(sub_series.iloc[-2])
+        
+        # Helper to get price 'X' days back from Last Friday
+        def get_p(days_back):
+            s = series.loc[:str(last_friday - timedelta(days=days_back))]
+            return float(s.iloc[-1]) if not s.empty else None
+            
+        p_1w = get_p(7)
+        p_2w = get_p(14)
+        p_3w = get_p(21)
+        p_4w = get_p(28)
+        p_5w = get_p(35)
+        p_1m = get_p(30)
+        
+        # Safe percentage calculation
+        def safe_ret(curr, prev):
+            if curr is None or prev is None or prev == 0: return "N/A"
+            return f"{((curr - prev) / prev) * 100:+.2f}%"
+
+        sec_rows.append({
+            "Sector": name,
+            lf_str: f"{p_0:,.2f}",
+            "1M Ret": safe_ret(p_0, p_1m),
+            "W1": safe_ret(p_0, p_1w),
+            "W2": safe_ret(p_1w, p_2w),
+            "W3": safe_ret(p_2w, p_3w),
+            "W4": safe_ret(p_3w, p_4w),
+            "W5": safe_ret(p_4w, p_5w),
+            "Day Chg": safe_ret(p_0, p_prev)
+        })
+
     if sec_rows:
-        df_sec = pd.DataFrame(sec_rows).sort_values("1 Week (%)", ascending=False)
-        # Apply formatting
-        for col in ["1 Week (%)", "1 Month (%)", "Custom Range (%)"]:
-            df_sec[col] = df_sec[col].apply(lambda x: f"{x:+.2f}%")
+        # Sort by W1 return by stripping the '%' and converting to float
+        df_sec = pd.DataFrame(sec_rows)
+        # Handle "N/A" strings during sorting by temporarily converting to -999
+        df_sec['sort_col'] = df_sec['W1'].apply(lambda x: float(x.replace('%', '')) if x != "N/A" else -999)
+        df_sec = df_sec.sort_values("sort_col", ascending=False).drop(columns=['sort_col'])
+        
         st.dataframe(df_sec, use_container_width=True, hide_index=True)
     else:
         st.warning("No sector data found.")
