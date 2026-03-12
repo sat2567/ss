@@ -158,42 +158,39 @@ ALL_INDICATORS = [
 ]
 
 # ─── DATA FETCHING ─────────────────────────────────────────────────────────────
-@st.cache_data(ttl=1800)
-def fetch_data_range(ticker_dict, start_date="2020-01-01"):
-    data_dict = {}
-    ticker_list = list(ticker_dict.values())
-    try:
-        raw = yf.download(ticker_list, start=start_date, auto_adjust=True, progress=False)
-    except Exception:
-        return {}
-    for name, ticker in ticker_dict.items():
-        try:
-            df = raw.copy() if len(ticker_list) == 1 else raw[ticker].copy()
-            if df.empty: continue
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
-            df = df.dropna(how='all').ffill()
-            if df.index.tz is not None:
-                df.index = df.index.tz_localize(None)
-            if df.empty: continue
-            data_dict[name] = df
-        except:
-            continue
-    return data_dict
+def _clean_df(df):
+    """Flatten MultiIndex columns, forward-fill, strip timezone."""
+    if df is None or df.empty:
+        return None
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    df = df.loc[:, ~df.columns.duplicated()]
+    df = df.dropna(how='all').ffill()
+    if df.index.tz is not None:
+        df.index = df.index.tz_localize(None)
+    return df if not df.empty else None
 
 
 def fetch_single_range(ticker, start_date="2020-01-01"):
+    """Download a single ticker robustly."""
     try:
-        df = yf.download(ticker, start=start_date, auto_adjust=True, progress=False)
-        if df.empty: return None
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-        df = df.dropna(how='all').ffill()
-        if df.index.tz is not None:
-            df.index = df.index.tz_localize(None)
-        return df if len(df) >= 5 else None
-    except:
+        df = yf.download(ticker, start=start_date, auto_adjust=True,
+                         progress=False, group_by="ticker")
+        df = _clean_df(df)
+        return df if df is not None and len(df) >= 5 else None
+    except Exception:
         return None
+
+
+@st.cache_data(ttl=1800)
+def fetch_data_range(ticker_dict, start_date="2020-01-01"):
+    """Download each ticker individually — avoids MultiIndex keying bugs in newer yfinance."""
+    data_dict = {}
+    for name, ticker in ticker_dict.items():
+        df = fetch_single_range(ticker, start_date)
+        if df is not None:
+            data_dict[name] = df
+    return data_dict
 
 
 # ─── EMBEDDED ETF DATA ────────────────────────────────────────────────────────
