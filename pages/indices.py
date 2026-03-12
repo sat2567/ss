@@ -516,19 +516,15 @@ def build_chart(df, name, selected_indicators, chart_type="Candlestick"):
     # ── LAYOUT ──────────────────────────────────────────────────────────────
     chart_h = 520 + n_sub * 140
 
-    # Disable rangeslider on all x-axes
-    for row_idx in range(1, 2 + n_sub):
-        fig.update_xaxes(
-            rangeslider_visible=False,
-            row=row_idx, col=1,
-            **AXIS_STYLE
-        )
-    fig.update_yaxes(
-        title_text="PRICE",
-        title_font=dict(size=9, color="#3a5a70"),
-        row=1, col=1,
-        **AXIS_STYLE
-    )
+    # Disable rangeslider and apply axis styles
+    if has_subplots:
+        for row_idx in range(1, 2 + n_sub):
+            fig.update_xaxes(rangeslider_visible=False, row=row_idx, col=1, **AXIS_STYLE)
+        fig.update_yaxes(title_text="PRICE", title_font=dict(size=9, color="#3a5a70"),
+                         row=1, col=1, **AXIS_STYLE)
+    else:
+        fig.update_xaxes(rangeslider_visible=False, **AXIS_STYLE)
+        fig.update_yaxes(title_text="PRICE", title_font=dict(size=9, color="#3a5a70"), **AXIS_STYLE)
 
     fig.update_layout(
         height=chart_h,
