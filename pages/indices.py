@@ -158,46 +158,70 @@ ALL_INDICATORS = [
 ]
 
 # ─── DATA FETCHING ─────────────────────────────────────────────────────────────
+OHLCV_COLS = ["Open", "High", "Low", "Close", "Volume"]
+
+
 def _clean_df(df):
-    """Flatten MultiIndex columns, forward-fill, strip timezone."""
+    """Normalise a raw yfinance DataFrame to flat OHLCV columns."""
     if df is None or df.empty:
         return None
-    # yfinance >=0.2 returns MultiIndex cols like ('Close', '^NSEI')
-    # Keep flattening until we get a flat Index
-    while isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-    # Drop duplicated columns (e.g. multiple 'Close' after flatten)
-    df = df.loc[:, ~df.columns.duplicated()]
-    # Make sure the standard OHLCV columns exist
+
+    # --- flatten any MultiIndex -------------------------------------------
+    if isinstance(df.columns, pd.MultiIndex):
+        # levels are usually (field, ticker)  e.g. ("Close", "^NSEI")
+        # get_level_values(0) gives the field names
+        lvl0 = list(df.columns.get_level_values(0))
+        lvl1 = list(df.columns.get_level_values(1))
+        # if level-0 contains OHLCV names → use level-0
+        if any(c in lvl0 for c in OHLCV_COLS):
+            df.columns = lvl0
+        # if level-1 contains OHLCV names → use level-1
+        elif any(c in lvl1 for c in OHLCV_COLS):
+            df.columns = lvl1
+        else:
+            df.columns = lvl0   # fallback
+
+    # --- strip whitespace, deduplicate ------------------------------------
     df.columns = [str(c).strip() for c in df.columns]
-    df = df.dropna(how='all').ffill()
+    df = df.loc[:, ~df.columns.duplicated()]
+
+    # --- keep only standard columns that exist ----------------------------
+    keep = [c for c in OHLCV_COLS if c in df.columns]
+    if "Close" not in keep:
+        return None
+    df = df[keep].copy()
+
+    df = df.dropna(subset=["Close"]).ffill()
     if df.index.tz is not None:
         df.index = df.index.tz_localize(None)
-    if df.empty or 'Close' not in df.columns:
-        return None
     return df if len(df) >= 5 else None
 
 
 def fetch_single_range(ticker, start_date="2020-01-01"):
-    """Download a single ticker robustly, trying multiple approaches."""
-    for attempt in range(2):
-        try:
-            # attempt 0: standard single-ticker download
-            # attempt 1: force multi=False via Ticker object
-            if attempt == 0:
-                df = yf.download(
-                    ticker, start=start_date,
-                    auto_adjust=True, progress=False,
-                    group_by="ticker", threads=False,
-                )
-            else:
-                t = yf.Ticker(ticker)
-                df = t.history(start=start_date, auto_adjust=True)
-            df = _clean_df(df)
-            if df is not None:
-                return df
-        except Exception:
-            continue
+    """
+    Download one ticker.  Uses Ticker.history() first (always flat columns),
+    falls back to yf.download() if that fails.
+    """
+    # --- method 1: Ticker.history — clean flat columns always --------------
+    try:
+        t = yf.Ticker(ticker)
+        df = t.history(start=start_date, auto_adjust=True)
+        df = _clean_df(df)
+        if df is not None:
+            return df
+    except Exception:
+        pass
+
+    # --- method 2: yf.download fallback -----------------------------------
+    try:
+        df = yf.download(ticker, start=start_date, auto_adjust=True,
+                         progress=False, threads=False)
+        df = _clean_df(df)
+        if df is not None:
+            return df
+    except Exception:
+        pass
+
     return None
 
 
@@ -360,6 +384,16 @@ def build_chart(df, name, selected_indicators, chart_type="Candlestick"):
     - Optional sub-panels: RSI, MACD, Stochastic, ADX, ATR, OBV, Volume
     - Optional overlays: MAs, BB, VWAP, Fibonacci, Pivot Points
     """
+    # Guard: ensure required columns exist
+    missing = [c for c in ["Open","High","Low","Close"] if c not in df.columns]
+    if missing:
+        fig = go.Figure()
+        fig.add_annotation(text=f"Missing columns: {missing}<br>Available: {list(df.columns)}",
+                           xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+                           font=dict(color="#ff3366", size=14, family="Share Tech Mono"))
+        fig.update_layout(height=520, paper_bgcolor="rgba(0,0,0,0)",
+                          plot_bgcolor="rgba(6,13,20,0.8)")
+        return fig
     # Determine which sub-panels are needed
     sub_indicators = [i for i in selected_indicators if i in
                       ["RSI (14)", "MACD", "Stochastic", "ADX", "ATR", "OBV", "Volume"]]
