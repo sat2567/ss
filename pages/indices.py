@@ -162,24 +162,43 @@ def _clean_df(df):
     """Flatten MultiIndex columns, forward-fill, strip timezone."""
     if df is None or df.empty:
         return None
-    if isinstance(df.columns, pd.MultiIndex):
+    # yfinance >=0.2 returns MultiIndex cols like ('Close', '^NSEI')
+    # Keep flattening until we get a flat Index
+    while isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
+    # Drop duplicated columns (e.g. multiple 'Close' after flatten)
     df = df.loc[:, ~df.columns.duplicated()]
+    # Make sure the standard OHLCV columns exist
+    df.columns = [str(c).strip() for c in df.columns]
     df = df.dropna(how='all').ffill()
     if df.index.tz is not None:
         df.index = df.index.tz_localize(None)
-    return df if not df.empty else None
+    if df.empty or 'Close' not in df.columns:
+        return None
+    return df if len(df) >= 5 else None
 
 
 def fetch_single_range(ticker, start_date="2020-01-01"):
-    """Download a single ticker robustly."""
-    try:
-        df = yf.download(ticker, start=start_date, auto_adjust=True,
-                         progress=False, group_by="ticker")
-        df = _clean_df(df)
-        return df if df is not None and len(df) >= 5 else None
-    except Exception:
-        return None
+    """Download a single ticker robustly, trying multiple approaches."""
+    for attempt in range(2):
+        try:
+            # attempt 0: standard single-ticker download
+            # attempt 1: force multi=False via Ticker object
+            if attempt == 0:
+                df = yf.download(
+                    ticker, start=start_date,
+                    auto_adjust=True, progress=False,
+                    group_by="ticker", threads=False,
+                )
+            else:
+                t = yf.Ticker(ticker)
+                df = t.history(start=start_date, auto_adjust=True)
+            df = _clean_df(df)
+            if df is not None:
+                return df
+        except Exception:
+            continue
+    return None
 
 
 @st.cache_data(ttl=1800)
@@ -775,6 +794,11 @@ def main():
         st.error("NO DATA FETCHED. CHECK CONNECTION.")
         return
 
+    # DEBUG: show what loaded and column names — remove after confirming fix
+    with st.expander("🔍 DEBUG: Loaded data info (remove after fix)", expanded=False):
+        for n, d in list(index_data.items())[:4]:
+            st.write(f"**{n}** — rows: {len(d)}, cols: {list(d.columns)}")
+
     # ── HEADER ──────────────────────────────────────────────────────────────
     now = datetime.now().strftime("%d %b %Y  //  %H:%M:%S")
     st.markdown(f"""
@@ -807,14 +831,19 @@ def main():
         card_cls = ""
         if name in index_data and not index_data[name].empty:
             df = index_data[name]
-            cur = float(df['Close'].iloc[-1])
-            val_str = f"{cur:,.2f}"
-            if len(df) >= 2:
-                prev = float(df['Close'].iloc[-2])
-                pct  = ((cur - prev) / prev) * 100
-                delta_str = f"{'▲' if pct >= 0 else '▼'} {abs(pct):.2f}%"
-                direction = "pos" if pct >= 0 else "neg"
-                card_cls  = "vix" if name == "INDIA VIX" else ("up" if pct >= 0 else "down")
+            if "Close" not in df.columns:
+                continue
+            try:
+                cur = float(df['Close'].iloc[-1])
+                val_str = f"{cur:,.2f}"
+                if len(df) >= 2:
+                    prev = float(df['Close'].iloc[-2])
+                    pct  = ((cur - prev) / prev) * 100
+                    delta_str = f"{'▲' if pct >= 0 else '▼'} {abs(pct):.2f}%"
+                    direction = "pos" if pct >= 0 else "neg"
+                    card_cls  = "vix" if name == "INDIA VIX" else ("up" if pct >= 0 else "down")
+            except Exception:
+                pass
         kpi_cards += f"""
         <div class="kpi-card {card_cls}">
           <div class="kpi-label">{name}</div>
