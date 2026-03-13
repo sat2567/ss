@@ -168,10 +168,10 @@ def main():
             if not series.empty:
                 idx_rows.append({
                     "Index": name,
+                    "Current Level": f"{float(series.iloc[-1]):,.2f}",
                     "1 Week": f"{calc_pct(series, days=7):+.2f}%",
                     "1 Month": f"{calc_pct(series, days=30):+.2f}%",
-                    "Custom Range": f"{calc_pct(series, start_dt=s_dt, end_dt=e_dt):+.2f}%",
-                    "LTP": f"{float(series.iloc[-1]):,.2f}"
+                    "Custom Range": f"{calc_pct(series, start_dt=s_dt, end_dt=e_dt):+.2f}%"
                 })
     
     if idx_rows:
@@ -180,7 +180,7 @@ def main():
         st.warning("Data connection issues. Please try refreshing.")
 
     # 4. SECTORS TABLE (CUSTOM HTML RENDERING)
-    st.markdown(f'<div class="section-head">SECTOR WEEKLY ROTATION (ENDING {lf_str.upper()})</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="section-head">SECTOR ROTATION (ENDING {lf_str.upper()})</div>', unsafe_allow_html=True)
     
     sec_rows = []
     for name, series in sec_dict.items():
@@ -190,17 +190,12 @@ def main():
         if len(sub_series) < 2: continue
             
         p_0 = float(sub_series.iloc[-1])
-        p_prev = float(sub_series.iloc[-2])
         
         def get_p(days_back):
             s = series.loc[:str(last_friday - timedelta(days=days_back))]
             return float(s.iloc[-1]) if not s.empty else None
             
         p_1w = get_p(7)
-        p_2w = get_p(14)
-        p_3w = get_p(21)
-        p_4w = get_p(28)
-        p_5w = get_p(35)
         p_1m = get_p(30)
         
         def safe_ret(curr, prev):
@@ -210,19 +205,15 @@ def main():
         sec_rows.append({
             "Sector": name,
             lf_str: f"{p_0:,.2f}",
-            "1M Ret": safe_ret(p_0, p_1m),
-            "W1": safe_ret(p_0, p_1w),
-            "W2": safe_ret(p_1w, p_2w),
-            "W3": safe_ret(p_2w, p_3w),
-            "W4": safe_ret(p_3w, p_4w),
-            "W5": safe_ret(p_4w, p_5w),
-            "Day Chg": safe_ret(p_0, p_prev)
+            "1 Week": safe_ret(p_0, p_1w),
+            "1 Month": safe_ret(p_0, p_1m)
         })
 
     if sec_rows:
         df_sec = pd.DataFrame(sec_rows)
-        # Sort by W1 return
-        df_sec['sort_col'] = df_sec['W1'].apply(lambda x: float(x.replace('%', '')) if x != "N/A" else -999)
+        
+        # Sort by 1 Week return
+        df_sec['sort_col'] = df_sec['1 Week'].apply(lambda x: float(str(x).replace('%', '').replace('+', '')) if x != "N/A" else -999)
         df_sec = df_sec.sort_values("sort_col", ascending=False).drop(columns=['sort_col'])
         
         # Build Custom HTML Table
