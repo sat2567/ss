@@ -191,12 +191,17 @@ def main():
             
         p_0 = float(sub_series.iloc[-1])
         
-        def get_p(days_back):
-            s = series.loc[:str(last_friday - timedelta(days=days_back))]
-            return float(s.iloc[-1]) if not s.empty else None
-            
-        p_1w = get_p(7)
-        p_1m = get_p(30)
+        # Calculate Monday to Friday logic
+        monday_date = last_friday - timedelta(days=4)
+        week_data = series.loc[str(monday_date):str(last_friday)]
+        
+        # Get the first available price in that Monday-Friday window
+        p_monday = float(week_data.iloc[0]) if not week_data.empty else None
+        
+        # Calculate 1 Month back
+        month_ago_date = last_friday - timedelta(days=30)
+        month_data = series.loc[:str(month_ago_date)]
+        p_1m = float(month_data.iloc[-1]) if not month_data.empty else None
         
         def safe_ret(curr, prev):
             if curr is None or prev is None or prev == 0: return "N/A"
@@ -205,7 +210,7 @@ def main():
         sec_rows.append({
             "Sector": name,
             lf_str: f"{p_0:,.2f}",
-            "1 Week": safe_ret(p_0, p_1w),
+            "1 Week (Mon-Fri)": safe_ret(p_0, p_monday),
             "1 Month": safe_ret(p_0, p_1m)
         })
 
@@ -213,7 +218,7 @@ def main():
         df_sec = pd.DataFrame(sec_rows)
         
         # Sort by 1 Week return
-        df_sec['sort_col'] = df_sec['1 Week'].apply(lambda x: float(str(x).replace('%', '').replace('+', '')) if x != "N/A" else -999)
+        df_sec['sort_col'] = df_sec['1 Week (Mon-Fri)'].apply(lambda x: float(str(x).replace('%', '').replace('+', '')) if x != "N/A" else -999)
         df_sec = df_sec.sort_values("sort_col", ascending=False).drop(columns=['sort_col'])
         
         # Build Custom HTML Table
